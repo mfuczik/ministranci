@@ -13,7 +13,7 @@
    (instrukcja w pliku INSTRUKCJA.md)
 ═══════════════════════════════════════════ */
 :root{
-  --api: 'WSTAW_TUTAJ_SWOJ_APPS_SCRIPT_URL';
+  --api: 'https://script.google.com/macros/s/AKfycbwt3MMrzkPueSx43HbSC4xxbGfhjTBhouBCSIp_OmN9Tm8d2RBlDxgI5Xd1X6AzvGNdpg/exec';
 
   --green:#2D6A1F;--green-light:#EAF3DE;--green-mid:#639922;
   --red:#A32D2D;--red-light:#FCEBEB;
@@ -255,8 +255,8 @@ tr:hover td{background:var(--bg2)}
 // ═══════════════════════════════════════════════
 //  KONFIGURACJA — wklej swój Apps Script URL
 // ═══════════════════════════════════════════════
-const API_URL = 'https://script.google.com/macros/s/AKfycbzjvKck8cP0Y59JrdJ5BjgXKos3dhnmarV43rV3rurEmF5g4_WTobjL6IyqxtOQsj0hhw/exec';
-                 
+const API_URL = 'WSTAW_TUTAJ_SWOJ_APPS_SCRIPT_URL';
+
 // ── STAŁE ──
 const DAYS=['niedziela','poniedziałek','wtorek','środa','czwartek','piątek','sobota'];
 const DAYSSHORT=['nd','pn','wt','śr','cz','pt','sb'];
@@ -326,22 +326,6 @@ async function apiCall(action, data={}){
   }
 }
 
-async function apiPost(action, data={}){
-  setSyncStatus('loading');
-  try{
-    const res=await fetch(API_URL,{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action,...data})
-    });
-    const json=await res.json();
-    setSyncStatus('ok');
-    return json;
-  }catch(e){
-    setSyncStatus('err');
-    console.error('API error',e);
-    return {ok:false,error:String(e)};
-  }
 }
 
 // ── LOGIKA ──
@@ -374,9 +358,9 @@ async function zapiszDzien(dateStr){
   S.savedDays[dateStr]=true;
   // Zapisz do Google Sheets
   if(entries.length>0){
-    await apiPost('saveLogi',{logi:JSON.stringify(entries),punkty:JSON.stringify(S.punkty),savedDay:dateStr});
+    await apiCall('saveLogi',{logi:JSON.stringify(entries),punkty:JSON.stringify(S.punkty),savedDay:dateStr});
   } else {
-    await apiPost('saveDay',{savedDay:dateStr,punkty:JSON.stringify(S.punkty)});
+    await apiCall('saveDay',{savedDay:dateStr,punkty:JSON.stringify(S.punkty)});
   }
   return true;
 }
@@ -393,7 +377,7 @@ async function catchUpOnStart(){
   }
   S.lastOpenedDate=today;
   S.date=new Date();
-  await apiPost('saveLastOpened',{date:today});
+  await apiCall('saveLastOpened',{date:today});
 }
 
 // ── INIT ──
@@ -464,7 +448,7 @@ function toggleOb(mszaId,mId,dateStr){
   const k=`${dateStr}_${mszaId}_${mId}`;
   S.obecnosci[k]=!S.obecnosci[k];
   // Zapisz async do sheets
-  apiPost('saveObecnosc',{key:k,val:S.obecnosci[k]?'1':'0'});
+  apiCall('saveObecnosc',{key:k,val:S.obecnosci[k]?'1':'0'});
   render();
 }
 function addDod(mszaId,dateStr){
@@ -477,14 +461,14 @@ function addDod(mszaId,dateStr){
   if(S.dodatkowi[key].includes(label))return;
   S.dodatkowi[key].push(label);
   S.extraInputs[ik]='';
-  apiPost('saveDodatkowi',{key,list:JSON.stringify(S.dodatkowi[key])});
+  apiCall('saveDodatkowi',{key,list:JSON.stringify(S.dodatkowi[key])});
   render();
 }
 function removeDod(mszaId,dateStr,i){
   if(S.savedDays[dateStr])return;
   const key=`${dateStr}_${mszaId}`;
   S.dodatkowi[key].splice(i,1);
-  apiPost('saveDodatkowi',{key,list:JSON.stringify(S.dodatkowi[key])});
+  apiCall('saveDodatkowi',{key,list:JSON.stringify(S.dodatkowi[key])});
   render();
 }
 function addNabDod(nabId){
@@ -493,60 +477,60 @@ function addNabDod(nabId){
   if(S.nabDodatkowi[nabId].includes(val))return;
   S.nabDodatkowi[nabId].push(val);
   S.nabInputs[nabId]='';
-  apiPost('saveNabDodatkowi',{nabId,list:JSON.stringify(S.nabDodatkowi[nabId])});
+  apiCall('saveNabDodatkowi',{nabId,list:JSON.stringify(S.nabDodatkowi[nabId])});
   render();
 }
-function removeNabDod(nabId,i){S.nabDodatkowi[nabId].splice(i,1);apiPost('saveNabDodatkowi',{nabId,list:JSON.stringify(S.nabDodatkowi[nabId])});render();}
+function removeNabDod(nabId,i){S.nabDodatkowi[nabId].splice(i,1);apiCall('saveNabDodatkowi',{nabId,list:JSON.stringify(S.nabDodatkowi[nabId])});render();}
 function toggleSec(key){S.collapsed[key]=!S.collapsed[key];render();}
 function toggleDay(i){const idx=S.newMszaDni.indexOf(i);if(idx===-1)S.newMszaDni.push(i);else S.newMszaDni.splice(idx,1);render();}
 
 async function addMin(){
   const imie=S.newMin.imie.trim(),nazwisko=S.newMin.nazwisko.trim();if(!imie||!nazwisko)return;
-  const res=await apiPost('addMin',{imie,nazwisko,kat:S.newMin.kat});
+  const res=await apiCall('addMin',{imie,nazwisko,kat:S.newMin.kat});
   if(res.ok){S.ministranci.push(res.ministrant);S.punkty[res.ministrant.id]=0;S.newMin={imie:'',nazwisko:'',kat:'ministrant'};toast('Dodano ministranta');render();}
   else toast('Błąd: '+res.error,'err');
 }
 async function deleteMin(id){
-  const res=await apiPost('deleteMin',{id});
+  const res=await apiCall('deleteMin',{id});
   if(res.ok){S.ministranci=S.ministranci.filter(m=>m.id!=id);toast('Usunięto');render();}
 }
 async function addMsza(){
   const g=S.newMszaGodzina.trim(),n=S.newMszaNazwa.trim();if(!g||!n||!S.newMszaDni.length)return;
-  const res=await apiPost('addMsza',{godzina:g,nazwa:n,dni:JSON.stringify(S.newMszaDni),pktObecny:S.newMszaPktObecny,pktNieobecny:S.newMszaPktNieobecny,pktDodatkowy:S.newMszaPktDodatkowy});
+  const res=await apiCall('addMsza',{godzina:g,nazwa:n,dni:JSON.stringify(S.newMszaDni),pktObecny:S.newMszaPktObecny,pktNieobecny:S.newMszaPktNieobecny,pktDodatkowy:S.newMszaPktDodatkowy});
   if(res.ok){S.msze.push(res.msza);S.newMszaGodzina='';S.newMszaNazwa='';S.newMszaDni=[];S.newMszaPktObecny=2;S.newMszaPktNieobecny=0;S.newMszaPktDodatkowy=1;toast('Dodano mszę');render();}
   else toast('Błąd','err');
 }
 async function deleteMsza(id){
-  const res=await apiPost('deleteMsza',{id});
+  const res=await apiCall('deleteMsza',{id});
   if(res.ok){S.msze=S.msze.filter(m=>m.id!=id);toast('Usunięto');render();}
 }
 async function addGrafik(){
   const{newGrafikMszaId:mszaId,newGrafikMinId:ministrantId,newGrafikDow:dow}=S;
   if(!mszaId||!ministrantId)return;
   if(S.grafik.find(g=>g.mszaId==mszaId&&g.ministrantId==ministrantId&&Number(g.dow)===dow))return;
-  const res=await apiPost('addGrafik',{mszaId,ministrantId,dow});
+  const res=await apiCall('addGrafik',{mszaId,ministrantId,dow});
   if(res.ok){S.grafik.push(res.wpis);toast('Dodano do grafiku');render();}
 }
 async function deleteGrafik(mszaId,ministrantId,dow){
-  const res=await apiPost('deleteGrafik',{mszaId,ministrantId,dow});
+  const res=await apiCall('deleteGrafik',{mszaId,ministrantId,dow});
   if(res.ok){S.grafik=S.grafik.filter(g=>!(g.mszaId==mszaId&&g.ministrantId==ministrantId&&Number(g.dow)===dow));toast('Usunięto');render();}
 }
 async function addSwiety(){
   const d=S.newSwiety;if(!d||S.swieta.includes(d))return;
-  const res=await apiPost('addSwiety',{data:d});
+  const res=await apiCall('addSwiety',{data:d});
   if(res.ok){S.swieta.push(d);S.newSwiety='';toast('Dodano święto');render();}
 }
 async function deleteSwiety(d){
-  const res=await apiPost('deleteSwiety',{data:d});
+  const res=await apiCall('deleteSwiety',{data:d});
   if(res.ok){S.swieta=S.swieta.filter(s=>s!==d);toast('Usunięto');render();}
 }
 async function addNab(){
   const data=S.newNabData,nazwa=S.newNabNazwa.trim();if(!data||!nazwa)return;
-  const res=await apiPost('addNab',{data,nazwa,pktDodatkowy:S.newNabPktDodatkowy});
+  const res=await apiCall('addNab',{data,nazwa,pktDodatkowy:S.newNabPktDodatkowy});
   if(res.ok){S.nabozenstwaDef.push(res.nab);S.newNabData='';S.newNabNazwa='';S.newNabPktDodatkowy=1;toast('Dodano nabożeństwo');render();}
 }
 async function deleteNab(id){
-  const res=await apiPost('deleteNab',{id});
+  const res=await apiCall('deleteNab',{id});
   if(res.ok){S.nabozenstwaDef=S.nabozenstwaDef.filter(n=>n.id!=id);toast('Usunięto');render();}
 }
 
