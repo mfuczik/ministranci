@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ministranci — Ewidencja Obecności</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=Source+Sans+3:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+<style>
+/* ═══════════════════════════════════════════
+   ZMIEŃ TEN URL NA SWÓJ APPS SCRIPT WEB APP URL
+   (instrukcja w pliku INSTRUKCJA.md)
+═══════════════════════════════════════════ */
+:root{
+  --api: 'WSTAW_TUTAJ_SWOJ_APPS_SCRIPT_URL';
+
+  --green:#2D6A1F;--green-light:#EAF3DE;--green-mid:#639922;
+  --red:#A32D2D;--red-light:#FCEBEB;
+  --blue:#0C447C;--blue-light:#E6F1FB;
+  --gold:#BA7517;--gold-light:#FAEEDA;
+  --purple:#3C3489;--purple-light:#EEEDFE;
+
+  --bg:#FAFAF7;--bg2:#F3F2EE;--bg3:#ECEAE4;
+  --border:#E0DDD5;--border2:#D0CCC0;
+  --text:#1A1916;--text2:#6B6760;--text3:#9E9B94;
+
+  --shadow:0 1px 3px rgba(0,0,0,.06),0 4px 12px rgba(0,0,0,.04);
+  --shadow-lg:0 4px 16px rgba(0,0,0,.08),0 12px 40px rgba(0,0,0,.06);
+  --r:10px;--r-sm:6px;
+
+  --font-display:'Lora',Georgia,serif;
+  --font-body:'Source Sans 3',system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{font-size:15px}
+body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-height:100vh}
+
+/* ── TOPBAR ── */
+.topbar{background:#fff;border-bottom:1px solid var(--border);padding:0 1.5rem;display:flex;align-items:center;justify-content:space-between;height:56px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+.topbar-brand{font-family:var(--font-display);font-size:18px;font-weight:600;color:var(--green);display:flex;align-items:center;gap:8px}
+.topbar-date{font-size:13px;color:var(--text2)}
+.topbar-sync{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text3)}
+.sync-dot{width:8px;height:8px;border-radius:50%;background:var(--border2)}
+.sync-dot.ok{background:var(--green-mid)}
+.sync-dot.err{background:var(--red)}
+.sync-dot.loading{background:var(--gold);animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* ── LAYOUT ── */
+.layout{display:flex;min-height:calc(100vh - 56px)}
+.sidebar{width:200px;flex-shrink:0;background:#fff;border-right:1px solid var(--border);padding:1rem 0;position:sticky;top:56px;height:calc(100vh - 56px);overflow-y:auto}
+.nav-item{display:flex;align-items:center;gap:10px;padding:.65rem 1.25rem;font-size:13px;font-weight:500;color:var(--text2);cursor:pointer;border:none;background:transparent;width:100%;text-align:left;transition:all .15s;border-left:3px solid transparent}
+.nav-item:hover{background:var(--bg2);color:var(--text)}
+.nav-item.active{background:var(--green-light);color:var(--green);border-left-color:var(--green-mid)}
+.nav-item i{font-size:16px;flex-shrink:0}
+.nav-sep{height:1px;background:var(--border);margin:.5rem 1rem}
+.main{flex:1;padding:1.5rem;max-width:820px;min-width:0}
+
+/* ── LOADING SCREEN ── */
+#loading-screen{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:999}
+#loading-screen .logo{font-family:var(--font-display);font-size:28px;color:var(--green)}
+#loading-screen .spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--green-mid);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#loading-screen.hidden{display:none}
+
+/* ── CARDS ── */
+.card{background:#fff;border:1px solid var(--border);border-radius:var(--r);margin-bottom:1rem;overflow:hidden;box-shadow:var(--shadow)}
+.card-header{padding:.85rem 1.1rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.card-title{font-family:var(--font-display);font-weight:600;font-size:15px;display:flex;align-items:center;gap:8px}
+.card-stats{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+
+/* ── BADGES ── */
+.badge{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600;white-space:nowrap}
+.b-green{background:var(--green-light);color:var(--green)}
+.b-blue{background:var(--blue-light);color:var(--blue)}
+.b-gold{background:var(--gold-light);color:var(--gold)}
+.b-red{background:var(--red-light);color:var(--red)}
+.b-purple{background:var(--purple-light);color:var(--purple)}
+.kat-kandydat{background:var(--purple-light);color:var(--purple);font-size:10px;padding:2px 7px;border-radius:20px;font-weight:600}
+.kat-ministrant{background:var(--green-light);color:var(--green);font-size:10px;padding:2px 7px;border-radius:20px;font-weight:600}
+.kat-lektor{background:var(--blue-light);color:var(--blue);font-size:10px;padding:2px 7px;border-radius:20px;font-weight:600}
+.kat-animator{background:var(--gold-light);color:var(--gold);font-size:10px;padding:2px 7px;border-radius:20px;font-weight:600}
+.pts-badge{font-size:10px;padding:2px 7px;border-radius:20px;font-weight:600;border:1px solid;white-space:nowrap}
+.pb-green{background:var(--green-light);color:var(--green);border-color:#C0DD97}
+.pb-red{background:var(--red-light);color:var(--red);border-color:#F5C0C0}
+.pb-blue{background:var(--blue-light);color:var(--blue);border-color:#B5D4F4}
+.pb-gold{background:var(--gold-light);color:var(--gold);border-color:#FAC775}
+.holiday-badge{font-size:10px;padding:2px 8px;border-radius:20px;background:var(--gold-light);color:var(--gold);font-weight:600}
+
+/* ── SECTION LABEL ── */
+.section-label{padding:.45rem 1.1rem;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;background:var(--bg2);border-bottom:1px solid var(--border)}
+
+/* ── MINISTRANT ROWS ── */
+.min-row{display:flex;align-items:center;gap:10px;padding:.65rem 1.1rem;border-bottom:1px solid var(--border);transition:background .12s}
+.min-row:last-child{border-bottom:none}
+.min-row:hover{background:var(--bg2)}
+.min-row.checked{background:#EAF3DE}
+.avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;background:#C0DD97;color:var(--green)}
+.check-btn{width:30px;height:30px;border-radius:var(--r-sm);border:2px solid var(--border2);background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0}
+.check-btn:hover{border-color:var(--green-mid)}
+.check-btn.done{background:var(--green-mid);border-color:var(--green)}
+.check-btn i{font-size:15px;color:var(--text3)}
+.check-btn.done i{color:#fff}
+.check-btn:disabled{opacity:.35;cursor:not-allowed}
+
+/* ── COLLAPSIBLE ── */
+.coll-section{border-top:1px solid var(--border)}
+.coll-header{display:flex;align-items:center;justify-content:space-between;padding:.55rem 1.1rem;cursor:pointer;background:var(--bg2);user-select:none}
+.coll-header:hover{background:var(--bg3)}
+.coll-header span{font-size:12px;font-weight:500;color:var(--text2)}
+.coll-body{padding:.75rem 1.1rem;border-top:1px solid var(--border)}
+
+/* ── NABOŻEŃSTWO CARD ── */
+.nab-card{background:#fff;border:1px solid #FAC775;border-radius:var(--r);margin-bottom:1rem;overflow:hidden;box-shadow:var(--shadow)}
+.nab-header{padding:.85rem 1.1rem;border-bottom:1px solid #FAC775;display:flex;align-items:center;justify-content:space-between;background:var(--gold-light)}
+.nab-title{font-family:var(--font-display);font-weight:600;font-size:15px;color:#412402;display:flex;align-items:center;gap:8px}
+.nab-chip{display:flex;align-items:center;gap:3px;padding:3px 9px;background:#FAC775;color:#412402;border-radius:20px;font-size:12px;font-weight:600}
+.nab-chip button{border:none;background:transparent;cursor:pointer;color:#633806;font-size:14px;line-height:1;padding:0}
+
+/* ── CHIPS ── */
+.chips{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px}
+.chip{display:flex;align-items:center;gap:3px;padding:3px 9px;background:var(--blue-light);color:var(--blue);border-radius:20px;font-size:12px;font-weight:500}
+.chip button{border:none;background:transparent;cursor:pointer;color:var(--blue);font-size:14px;line-height:1;padding:0}
+
+/* ── INPUT ROW ── */
+.input-row{display:flex;gap:8px}
+.input-row input{flex:1;height:34px;border:1px solid var(--border2);border-radius:var(--r-sm);padding:0 10px;font-size:13px;font-family:var(--font-body);background:#fff;color:var(--text)}
+.input-row input:focus{outline:none;border-color:var(--green-mid);box-shadow:0 0 0 3px rgba(99,153,34,.12)}
+.input-row button{height:34px;padding:0 14px;background:var(--text);color:#fff;border:none;border-radius:var(--r-sm);cursor:pointer;font-size:13px;font-weight:500;transition:opacity .15s}
+.input-row button:hover{opacity:.85}
+
+/* ── STATUS BAR ── */
+.status-bar{border-radius:var(--r);padding:.65rem 1rem;margin-top:.75rem;display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;border:1px solid var(--border);color:var(--text2);background:var(--bg2)}
+.status-bar.saved{background:var(--green-light);border-color:#C0DD97;color:var(--green)}
+
+/* ── CATCHUP BANNER ── */
+.catchup-banner{background:#FFF8E6;border:1px solid #FAC775;border-radius:var(--r);padding:.85rem 1rem;margin-bottom:1rem;font-size:13px;color:#633806;display:flex;gap:10px;align-items:flex-start}
+
+/* ── TABLES ── */
+.tbl-wrap{background:#fff;border:1px solid var(--border);border-radius:var(--r);overflow:auto;box-shadow:var(--shadow)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{padding:7px 10px;text-align:left;font-weight:600;font-size:11px;color:var(--text2);background:var(--bg2);border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none;font-family:var(--font-body)}
+th.sort-active{color:var(--text)}
+th.no-sort{cursor:default}
+.sort-arrow{font-size:10px;margin-left:3px;opacity:.4}
+th.sort-active .sort-arrow{opacity:1}
+td{padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--bg2)}
+.pts-good{color:var(--green);font-weight:600}
+.pts-bad{color:var(--red);font-weight:600}
+
+/* ── FORMS ── */
+.form-card{background:#fff;border:1px solid var(--border);border-radius:var(--r);padding:.9rem 1rem;margin-bottom:.75rem;box-shadow:var(--shadow)}
+.form-row{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
+.fg{display:flex;flex-direction:column;gap:3px;min-width:0}
+.fg label{font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.04em}
+.fg input,.fg select{height:34px;border:1px solid var(--border2);border-radius:var(--r-sm);padding:0 9px;font-size:13px;font-family:var(--font-body);background:#fff;color:var(--text);transition:border-color .15s}
+.fg input:focus,.fg select:focus{outline:none;border-color:var(--green-mid);box-shadow:0 0 0 3px rgba(99,153,34,.12)}
+.fg input[type=number]{width:68px;text-align:center}
+.btn-primary{height:34px;padding:0 16px;background:var(--green);color:#fff;border:none;border-radius:var(--r-sm);cursor:pointer;font-size:13px;font-weight:600;transition:all .15s;flex-shrink:0;font-family:var(--font-body)}
+.btn-primary:hover{background:var(--green-mid)}
+.btn-secondary{height:34px;padding:0 12px;border:1px solid var(--border2);border-radius:var(--r-sm);background:#fff;cursor:pointer;font-size:13px;color:var(--text);font-family:var(--font-body);transition:all .15s}
+.btn-secondary:hover{background:var(--bg2)}
+.btn-danger{height:26px;padding:0 9px;border:none;border-radius:var(--r-sm);background:var(--red-light);color:var(--red);cursor:pointer;font-size:11px;font-weight:600;font-family:var(--font-body)}
+.btn-danger:hover{background:#F5C0C0}
+.pts-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
+.pts-grp{display:flex;flex-direction:column;gap:3px}
+.pts-grp label{font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.04em}
+.pts-grp input{width:64px;height:30px;border:1px solid var(--border2);border-radius:var(--r-sm);padding:0 8px;font-size:13px;text-align:center;font-family:var(--font-body);background:#fff;color:var(--text)}
+
+/* ── DAYS PICKER ── */
+.days-picker{display:flex;justify-content:center;gap:7px;flex-wrap:wrap;margin-top:10px}
+.day-tile{width:42px;height:42px;border-radius:9px;border:2px solid var(--border2);background:var(--bg2);cursor:pointer;font-size:11px;font-weight:700;color:var(--text2);display:flex;align-items:center;justify-content:center;transition:all .15s;user-select:none;font-family:var(--font-body)}
+.day-tile:hover{border-color:var(--green-mid);color:var(--green);transform:translateY(-1px)}
+.day-tile.sel{background:var(--green-mid);border-color:var(--green);color:#fff;box-shadow:0 2px 8px rgba(99,153,34,.3);transform:translateY(-1px)}
+.days-label{font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-top:10px;margin-bottom:2px;text-align:center}
+.days-info{font-size:11px;margin-top:6px;text-align:center}
+
+/* ── OVERVIEW GRID ── */
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem}
+@media(max-width:640px){.grid-2{grid-template-columns:1fr}}
+.day-row-empty td{background:#FFF0F0}
+.day-row-empty .day-cell{color:var(--red);font-weight:600}
+
+/* ── LOGI ── */
+.log-filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1rem;align-items:center}
+.log-filters select,.log-filters input{height:34px;border:1px solid var(--border2);border-radius:var(--r-sm);padding:0 9px;font-size:13px;font-family:var(--font-body);background:#fff;color:var(--text)}
+.log-filters input[type=date]{width:145px}
+.log-group{margin-bottom:1.25rem}
+.log-group-hdr{display:flex;align-items:center;gap:10px;padding:.45rem 0;margin-bottom:5px;border-bottom:1px solid var(--border)}
+.log-group-date{font-family:var(--font-display);font-size:13px;font-weight:600}
+.log-group-sum{font-size:12px;color:var(--text2);margin-left:auto}
+.log-entry{display:flex;align-items:center;gap:10px;padding:.5rem .8rem;border-radius:var(--r-sm);margin-bottom:3px;background:#fff;border:1px solid var(--border);transition:background .1s}
+.log-entry:hover{background:var(--bg2)}
+.log-delta{font-size:14px;font-weight:700;min-width:36px;text-align:right;flex-shrink:0}
+.log-delta.pos{color:var(--green)}
+.log-delta.neg{color:var(--red)}
+.log-delta.zero{color:var(--text3)}
+.log-name{font-size:13px;font-weight:500;min-width:130px}
+.log-reason{font-size:12px;color:var(--text2);flex:1}
+.log-type{font-size:10px;padding:2px 8px;border-radius:20px;font-weight:700;flex-shrink:0}
+.lt-obl{background:var(--green-light);color:var(--green)}
+.lt-nob{background:var(--red-light);color:var(--red)}
+.lt-dod{background:var(--blue-light);color:var(--blue)}
+.lt-nab{background:var(--gold-light);color:var(--gold)}
+
+/* ── SECTION HEADINGS ── */
+.panel-section{margin-bottom:1.75rem}
+.panel-section>h2{font-family:var(--font-display);font-size:17px;font-weight:600;margin-bottom:.85rem;color:var(--text);display:flex;align-items:center;gap:8px}
+.panel-section>h2 i{font-size:18px;color:var(--green-mid)}
+.empty-state{padding:2rem;text-align:center;color:var(--text3);font-size:13px}
+
+/* ── TOAST ── */
+#toast{position:fixed;bottom:1.5rem;right:1.5rem;background:var(--text);color:#fff;padding:.65rem 1rem;border-radius:var(--r-sm);font-size:13px;font-weight:500;box-shadow:var(--shadow-lg);transform:translateY(8px);opacity:0;transition:all .25s;pointer-events:none;z-index:999}
+#toast.show{transform:translateY(0);opacity:1}
+#toast.ok{background:var(--green)}
+#toast.err{background:var(--red)}
+</style>
+</head>
+<body>
+
+<!-- Loading -->
+<div id="loading-screen">
+  <div class="logo"><i class="ti ti-church"></i> Ministranci</div>
+  <div class="spinner"></div>
+  <div style="font-size:13px;color:#6B6760">Łączenie z bazą danych…</div>
+</div>
+
+<div id="toast"></div>
+
+<!-- App (hidden until loaded) -->
+<div id="app-shell" style="display:none">
+  <div class="topbar">
+    <div class="topbar-brand"><i class="ti ti-church"></i> Ministranci</div>
+    <div style="display:flex;align-items:center;gap:16px">
+      <div class="topbar-date" id="topbar-date"></div>
+      <div class="topbar-sync"><div class="sync-dot" id="sync-dot"></div><span id="sync-label">Łączenie…</span></div>
+    </div>
+  </div>
+  <div class="layout">
+    <nav class="sidebar">
+      <button class="nav-item active" onclick="setTab('dzis')"><i class="ti ti-clipboard-check"></i> Dziś</button>
+      <button class="nav-item" onclick="setTab('punkty')"><i class="ti ti-trophy"></i> Punkty</button>
+      <button class="nav-item" onclick="setTab('historia')"><i class="ti ti-history"></i> Historia</button>
+      <div class="nav-sep"></div>
+      <button class="nav-item" onclick="setTab('opiekun')"><i class="ti ti-settings"></i> Panel opiekuna</button>
+    </nav>
+    <main class="main" id="main-content"></main>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════
+//  KONFIGURACJA — wklej swój Apps Script URL
+// ═══════════════════════════════════════════════
+const API_URL = 'WSTAW_TUTAJ_SWOJ_APPS_SCRIPT_URL';
+
+// ── STAŁE ──
+const DAYS=['niedziela','poniedziałek','wtorek','środa','czwartek','piątek','sobota'];
+const DAYSSHORT=['nd','pn','wt','śr','cz','pt','sb'];
+const MONTHS=['stycznia','lutego','marca','kwietnia','maja','czerwca','lipca','sierpnia','września','października','listopada','grudnia'];
+const KAT_CSS={kandydat:'kat-kandydat',ministrant:'kat-ministrant',lektor:'kat-lektor',animator:'kat-animator'};
+
+// ── STAN ──
+let S={
+  tab:'dzis',
+  date:new Date(),
+  ministranci:[],msze:[],grafik:[],swieta:[],nabozenstwaDef:[],
+  obecnosci:{},dodatkowi:{},nabDodatkowi:{},punkty:{},
+  savedDays:{},logi:[],
+  lastOpenedDate:null,catchupDays:[],
+  extraInputs:{},nabInputs:{},collapsed:{},
+  newMin:{imie:'',nazwisko:'',kat:'ministrant'},
+  newMszaDni:[],newMszaGodzina:'',newMszaNazwa:'',
+  newMszaPktObecny:2,newMszaPktNieobecny:0,newMszaPktDodatkowy:1,
+  newGrafikMszaId:'',newGrafikMinId:'',newGrafikDow:1,
+  newSwiety:'',newNabData:'',newNabNazwa:'',newNabPktDodatkowy:1,
+  logFilterMin:'',logFilterDateFrom:'',logFilterDateTo:'',logFilterTyp:'',
+  sortPkKey:'punkty',sortPkDir:-1,
+  sortOpKey:'nazwisko',sortOpDir:1,
+};
+
+// ── HELPERS ──
+function dk(d){return d instanceof Date?d.toISOString().slice(0,10):String(d)}
+function fdShort(d){const dd=typeof d==='string'?new Date(d+'T12:00'):d;return `${dd.getDate()}.${dd.getMonth()+1}.${dd.getFullYear()}`}
+function fdLong(d){const dd=typeof d==='string'?new Date(d+'T12:00'):d;return `${DAYS[dd.getDay()]}, ${dd.getDate()} ${MONTHS[dd.getMonth()]} ${dd.getFullYear()}`}
+function fMin(id){return S.ministranci.find(m=>m.id==id)}
+function fMsza(id){return S.msze.find(m=>m.id==id)}
+function initials(m){return (m.imie[0]||'')+(m.nazwisko[0]||'')}
+function isSunday(d){return new Date(d+'T12:00').getDay()===0}
+function isHoliday(d){return S.swieta.includes(d)||isSunday(d)}
+function dowOf(d){return new Date(d+'T12:00').getDay()}
+function todayStr(){return dk(new Date())}
+function addDays(ds,n){const d=new Date(ds+'T12:00');d.setDate(d.getDate()+n);return dk(d)}
+function pktStr(v){return v>0?`+${v}`:String(v)}
+
+function toast(msg,type='ok',ms=2500){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.className='show '+(type==='ok'?'ok':'err');
+  clearTimeout(t._t);t._t=setTimeout(()=>t.className='',ms);
+}
+
+function setSyncStatus(status){
+  const dot=document.getElementById('sync-dot');
+  const lbl=document.getElementById('sync-label');
+  if(status==='ok'){dot.className='sync-dot ok';lbl.textContent='Zsynchronizowano';}
+  else if(status==='err'){dot.className='sync-dot err';lbl.textContent='Błąd połączenia';}
+  else{dot.className='sync-dot loading';lbl.textContent='Synchronizacja…';}
+}
+
+// ── API ──
+async function apiCall(action, data={}){
+  setSyncStatus('loading');
+  try{
+    const params=new URLSearchParams({action,...data});
+    const res=await fetch(API_URL+'?'+params);
+    const json=await res.json();
+    setSyncStatus('ok');
+    return json;
+  }catch(e){
+    setSyncStatus('err');
+    console.error('API error',e);
+    return {ok:false,error:String(e)};
+  }
+}
+
+}
+
+// ── LOGIKA ──
+function mszeDnia(dateStr){
+  const dow=dowOf(dateStr),holiday=isHoliday(dateStr);
+  return S.msze.filter(m=>{
+    if(!m.dni||!m.dni.length)return false;
+    const dni=m.dni.map(Number);
+    if(holiday)return dni.includes(0);
+    return !(dni.length===1&&dni[0]===0)&&dni.includes(dow);
+  }).sort((a,b)=>a.godzina.localeCompare(b.godzina));
+}
+function grafikMszy(mszaId,dow){return S.grafik.filter(g=>g.mszaId==mszaId&&Number(g.dow)===dow);}
+
+async function zapiszDzien(dateStr){
+  if(S.savedDays[dateStr])return false;
+  const entries=[];
+  mszeDnia(dateStr).forEach(msza=>{
+    grafikMszy(msza.id,dowOf(dateStr)).forEach(g=>{
+      const byl=!!S.obecnosci[`${dateStr}_${msza.id}_${g.ministrantId}`];
+      const delta=byl?(Number(msza.pktObecny)||2):(Number(msza.pktNieobecny)||0);
+      if(!S.punkty[g.ministrantId])S.punkty[g.ministrantId]=0;
+      S.punkty[g.ministrantId]+=delta;
+      if(delta!==0){
+        const entry={data:dateStr,ministrantId:g.ministrantId,delta,powod:msza.nazwa,typ:byl?'obl':'nob'};
+        S.logi.push(entry);entries.push(entry);
+      }
+    });
+  });
+  S.savedDays[dateStr]=true;
+  // Zapisz do Google Sheets
+  if(entries.length>0){
+    await apiCall('saveLogi',{logi:JSON.stringify(entries),punkty:JSON.stringify(S.punkty),savedDay:dateStr});
+  } else {
+    await apiCall('saveDay',{savedDay:dateStr,punkty:JSON.stringify(S.punkty)});
+  }
+  return true;
+}
+
+async function catchUpOnStart(){
+  const today=todayStr(),last=S.lastOpenedDate;
+  S.catchupDays=[];
+  if(last&&last<today){
+    let cursor=addDays(last,1);
+    while(cursor<today){
+      if(!S.savedDays[cursor]){await zapiszDzien(cursor);S.catchupDays.push(cursor);}
+      cursor=addDays(cursor,1);
+    }
+  }
+  S.lastOpenedDate=today;
+  S.date=new Date();
+  await apiCall('saveLastOpened',{date:today});
+}
+
+// ── INIT ──
+async function init(){
+  const data=await apiCall('getAll');
+  if(!data||!data.ok){
+    document.getElementById('loading-screen').innerHTML=`
+      <div style="text-align:center;padding:2rem">
+        <div style="font-size:28px;margin-bottom:12px">⚠️</div>
+        <div style="font-family:var(--font-display);font-size:18px;margin-bottom:8px;color:var(--red)">Błąd połączenia z bazą danych</div>
+        <div style="font-size:13px;color:var(--text2);max-width:340px">Sprawdź czy wkleiłeś poprawny URL Apps Script w pliku index.html (zmienna API_URL).<br><br>Błąd: ${data?.error||'brak odpowiedzi'}</div>
+      </div>`;
+    return;
+  }
+  S.ministranci=data.ministranci||[];
+  S.msze=data.msze||[];
+  S.grafik=data.grafik||[];
+  S.swieta=data.swieta||[];
+  S.nabozenstwaDef=data.nabozenstwaDef||[];
+  S.obecnosci=data.obecnosci||{};
+  S.dodatkowi=data.dodatkowi||{};
+  S.nabDodatkowi=data.nabDodatkowi||{};
+  S.punkty=data.punkty||{};
+  S.savedDays=data.savedDays||{};
+  S.logi=data.logi||[];
+  S.lastOpenedDate=data.lastOpenedDate||null;
+
+  await catchUpOnStart();
+
+  document.getElementById('loading-screen').classList.add('hidden');
+  document.getElementById('app-shell').style.display='';
+  updateTopbarDate();
+  render();
+  setSyncStatus('ok');
+}
+
+function updateTopbarDate(){
+  const el=document.getElementById('topbar-date');
+  if(el)el.textContent=fdLong(S.date);
+}
+
+// Sprawdzaj zmianę dnia co minutę
+let _lastChecked=todayStr();
+setInterval(async()=>{
+  const now=todayStr();
+  if(now!==_lastChecked){
+    await zapiszDzien(_lastChecked);
+    _lastChecked=now;
+    S.date=new Date();
+    S.catchupDays=[];
+    updateTopbarDate();
+    render();
+  }
+},60000);
+
+// ── TAB ──
+function setTab(tab){
+  S.tab=tab;
+  document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
+  const map={dzis:0,punkty:1,historia:2,opiekun:3};
+  document.querySelectorAll('.nav-item')[map[tab]]?.classList.add('active');
+  render();
+}
+
+// ── AKCJE ──
+function toggleOb(mszaId,mId,dateStr){
+  if(S.savedDays[dateStr])return;
+  const k=`${dateStr}_${mszaId}_${mId}`;
+  S.obecnosci[k]=!S.obecnosci[k];
+  // Zapisz async do sheets
+  apiCall('saveObecnosc',{key:k,val:S.obecnosci[k]?'1':'0'});
+  render();
+}
+function addDod(mszaId,dateStr){
+  if(S.savedDays[dateStr])return;
+  const ik=`${mszaId}_${dateStr}`,val=(S.extraInputs[ik]||'').trim();if(!val)return;
+  const key=`${dateStr}_${mszaId}`;if(!S.dodatkowi[key])S.dodatkowi[key]=[];
+  const oblIds=grafikMszy(mszaId,dowOf(dateStr)).map(g=>g.ministrantId);
+  const min=S.ministranci.find(m=>(m.imie+' '+m.nazwisko).toLowerCase()===val.toLowerCase()&&!oblIds.includes(m.id));
+  const label=min?(min.imie+' '+min.nazwisko):val;
+  if(S.dodatkowi[key].includes(label))return;
+  S.dodatkowi[key].push(label);
+  S.extraInputs[ik]='';
+  apiCall('saveDodatkowi',{key,list:JSON.stringify(S.dodatkowi[key])});
+  render();
+}
+function removeDod(mszaId,dateStr,i){
+  if(S.savedDays[dateStr])return;
+  const key=`${dateStr}_${mszaId}`;
+  S.dodatkowi[key].splice(i,1);
+  apiCall('saveDodatkowi',{key,list:JSON.stringify(S.dodatkowi[key])});
+  render();
+}
+function addNabDod(nabId){
+  const val=(S.nabInputs[nabId]||'').trim();if(!val)return;
+  if(!S.nabDodatkowi[nabId])S.nabDodatkowi[nabId]=[];
+  if(S.nabDodatkowi[nabId].includes(val))return;
+  S.nabDodatkowi[nabId].push(val);
+  S.nabInputs[nabId]='';
+  apiCall('saveNabDodatkowi',{nabId,list:JSON.stringify(S.nabDodatkowi[nabId])});
+  render();
+}
+function removeNabDod(nabId,i){S.nabDodatkowi[nabId].splice(i,1);apiCall('saveNabDodatkowi',{nabId,list:JSON.stringify(S.nabDodatkowi[nabId])});render();}
+function toggleSec(key){S.collapsed[key]=!S.collapsed[key];render();}
+function toggleDay(i){const idx=S.newMszaDni.indexOf(i);if(idx===-1)S.newMszaDni.push(i);else S.newMszaDni.splice(idx,1);render();}
+
+async function addMin(){
+  const imie=S.newMin.imie.trim(),nazwisko=S.newMin.nazwisko.trim();if(!imie||!nazwisko)return;
+  const res=await apiCall('addMin',{imie,nazwisko,kat:S.newMin.kat});
+  if(res.ok){S.ministranci.push(res.ministrant);S.punkty[res.ministrant.id]=0;S.newMin={imie:'',nazwisko:'',kat:'ministrant'};toast('Dodano ministranta');render();}
+  else toast('Błąd: '+res.error,'err');
+}
+async function deleteMin(id){
+  const res=await apiCall('deleteMin',{id});
+  if(res.ok){S.ministranci=S.ministranci.filter(m=>m.id!=id);toast('Usunięto');render();}
+}
+async function addMsza(){
+  const g=S.newMszaGodzina.trim(),n=S.newMszaNazwa.trim();if(!g||!n||!S.newMszaDni.length)return;
+  const res=await apiCall('addMsza',{godzina:g,nazwa:n,dni:JSON.stringify(S.newMszaDni),pktObecny:S.newMszaPktObecny,pktNieobecny:S.newMszaPktNieobecny,pktDodatkowy:S.newMszaPktDodatkowy});
+  if(res.ok){S.msze.push(res.msza);S.newMszaGodzina='';S.newMszaNazwa='';S.newMszaDni=[];S.newMszaPktObecny=2;S.newMszaPktNieobecny=0;S.newMszaPktDodatkowy=1;toast('Dodano mszę');render();}
+  else toast('Błąd','err');
+}
+async function deleteMsza(id){
+  const res=await apiCall('deleteMsza',{id});
+  if(res.ok){S.msze=S.msze.filter(m=>m.id!=id);toast('Usunięto');render();}
+}
+async function addGrafik(){
+  const{newGrafikMszaId:mszaId,newGrafikMinId:ministrantId,newGrafikDow:dow}=S;
+  if(!mszaId||!ministrantId)return;
+  if(S.grafik.find(g=>g.mszaId==mszaId&&g.ministrantId==ministrantId&&Number(g.dow)===dow))return;
+  const res=await apiCall('addGrafik',{mszaId,ministrantId,dow});
+  if(res.ok){S.grafik.push(res.wpis);toast('Dodano do grafiku');render();}
+}
+async function deleteGrafik(mszaId,ministrantId,dow){
+  const res=await apiCall('deleteGrafik',{mszaId,ministrantId,dow});
+  if(res.ok){S.grafik=S.grafik.filter(g=>!(g.mszaId==mszaId&&g.ministrantId==ministrantId&&Number(g.dow)===dow));toast('Usunięto');render();}
+}
+async function addSwiety(){
+  const d=S.newSwiety;if(!d||S.swieta.includes(d))return;
+  const res=await apiCall('addSwiety',{data:d});
+  if(res.ok){S.swieta.push(d);S.newSwiety='';toast('Dodano święto');render();}
+}
+async function deleteSwiety(d){
+  const res=await apiCall('deleteSwiety',{data:d});
+  if(res.ok){S.swieta=S.swieta.filter(s=>s!==d);toast('Usunięto');render();}
+}
+async function addNab(){
+  const data=S.newNabData,nazwa=S.newNabNazwa.trim();if(!data||!nazwa)return;
+  const res=await apiCall('addNab',{data,nazwa,pktDodatkowy:S.newNabPktDodatkowy});
+  if(res.ok){S.nabozenstwaDef.push(res.nab);S.newNabData='';S.newNabNazwa='';S.newNabPktDodatkowy=1;toast('Dodano nabożeństwo');render();}
+}
+async function deleteNab(id){
+  const res=await apiCall('deleteNab',{id});
+  if(res.ok){S.nabozenstwaDef=S.nabozenstwaDef.filter(n=>n.id!=id);toast('Usunięto');render();}
+}
+
+// ── RENDER DZIŚ ──
+function renderDzis(){
+  const dateStr=dk(S.date),holiday=isHoliday(dateStr);
+  const mszeD=mszeDnia(dateStr),nabDnia=S.nabozenstwaDef.filter(n=>n.data===dateStr);
+  const isSaved=!!S.savedDays[dateStr];
+
+  const banner=S.catchupDays.length>0
+    ?`<div class="catchup-banner"><i class="ti ti-clock-check" style="font-size:20px;flex-shrink:0"></i>
+       <div><strong>Nadrobiono pominięte dni</strong><br>
+       Punkty doliczone automatycznie za: ${S.catchupDays.map(d=>`<strong>${fdLong(d)}</strong>`).join(', ')}.</div></div>`:'';
+
+  const mszCards=mszeD.map(msza=>{
+    const dow=dowOf(dateStr),gDnia=grafikMszy(msza.id,dow);
+    const oblMins=gDnia.map(g=>fMin(g.ministrantId)).filter(Boolean);
+    const present=oblMins.filter(m=>S.obecnosci[`${dateStr}_${msza.id}_${m.id}`]).length;
+    const dods=S.dodatkowi[`${dateStr}_${msza.id}`]||[];
+    const secKey=`dod_${msza.id}`,collapsed=S.collapsed[secKey],ik=`${msza.id}_${dateStr}`;
+
+    const rows=oblMins.map(m=>{
+      const ch=!!S.obecnosci[`${dateStr}_${msza.id}_${m.id}`];
+      const delta=ch?(Number(msza.pktObecny)||2):(Number(msza.pktNieobecny)||0);
+      return `<div class="min-row${ch?' checked':''}">
+        <div class="avatar">${initials(m)}</div>
+        <div style="flex:1"><div style="font-size:14px;font-weight:500">${m.imie} ${m.nazwisko}</div>
+          <span class="${KAT_CSS[m.kat]||'kat-ministrant'}">${m.kat}</span></div>
+        <span style="font-size:12px;color:var(--text2);margin-right:5px">${S.punkty[m.id]||0} pkt</span>
+        ${!isSaved?`<span class="pts-badge ${delta<0?'pb-red':delta>0?'pb-green':''}">${pktStr(delta)}</span>`:''}
+        <button class="check-btn${ch?' done':''}" onclick="toggleOb(${msza.id},${m.id},'${dateStr}')" ${isSaved?'disabled':''} style="margin-left:6px">
+          <i class="ti ${ch?'ti-check':'ti-circle'}"></i></button>
+      </div>`;
+    }).join('');
+
+    const dodChips=dods.map((n,i)=>`<span class="chip">${n}${!isSaved?`<button onclick="removeDod(${msza.id},'${dateStr}',${i})">×</button>`:''}</span>`).join('');
+    const oblIds=gDnia.map(g=>g.ministrantId);
+    const dostepni=S.ministranci.filter(m=>!oblIds.includes(m.id)&&!oblIds.includes(String(m.id))).map(m=>m.imie+' '+m.nazwisko);
+    const pki=`<span class="pts-badge pb-green">obow. ${pktStr(Number(msza.pktObecny)||2)}</span>
+      <span class="pts-badge pb-red">nieob. ${pktStr(Number(msza.pktNieobecny)||0)}</span>
+      <span class="pts-badge pb-blue">dod. ${pktStr(Number(msza.pktDodatkowy)||1)}</span>`;
+
+    return `<div class="card">
+      <div class="card-header">
+        <div class="card-title"><i class="ti ti-church" style="color:var(--green-mid)"></i>${msza.nazwa}
+          ${holiday?`<span class="holiday-badge"><i class="ti ti-star" style="font-size:10px"></i> Niedziela/Święto</span>`:''}
+        </div>
+        <div class="card-stats">
+          <span style="font-size:13px;color:var(--text2)"><i class="ti ti-clock" style="font-size:12px;vertical-align:-1px"></i> ${msza.godzina}</span>
+          <span class="badge b-green">${present}/${oblMins.length} obecnych</span>
+          ${dods.length?`<span class="badge b-blue">+${dods.length} dod.</span>`:''}
+          ${pki}
+        </div>
+      </div>
+      <div class="section-label">Obowiązkowi ministranci</div>
+      ${rows||'<div class="empty-state" style="padding:.75rem">Brak przypisanych ministrantów na ten dzień.</div>'}
+      <div class="coll-section">
+        <div class="coll-header" onclick="toggleSec('${secKey}')">
+          <span><i class="ti ti-users" style="font-size:13px;vertical-align:-1px"></i> Lista dodatkowa${dods.length?' ('+dods.length+')':''}</span>
+          <i class="ti ${collapsed?'ti-chevron-down':'ti-chevron-up'}" style="font-size:14px;color:var(--text3)"></i>
+        </div>
+        ${!collapsed?`<div class="coll-body">
+          ${dodChips?`<div class="chips">${dodChips}</div>`:''}
+          ${!isSaved?`<datalist id="dl_${msza.id}_${dateStr}">${dostepni.map(n=>`<option value="${n}">`).join('')}</datalist>
+          <div class="input-row">
+            <input list="dl_${msza.id}_${dateStr}" placeholder="Imię i nazwisko…" value="${S.extraInputs[ik]||''}" oninput="S.extraInputs['${ik}']=this.value" onkeydown="if(event.key==='Enter')addDod(${msza.id},'${dateStr}')">
+            <button onclick="addDod(${msza.id},'${dateStr}')">Dodaj</button>
+          </div>`:`<p style="font-size:12px;color:var(--text3);margin-top:4px"><i class="ti ti-lock" style="font-size:12px;vertical-align:-1px"></i> Dzień zapisany — edycja zablokowana.</p>`}
+        </div>`:''}
+      </div>
+    </div>`;
+  }).join('');
+
+  const nabCards=nabDnia.map(nab=>{
+    const nabs=S.nabDodatkowi[nab.id]||[],secKey=`nab_${nab.id}`,collapsed=S.collapsed[secKey];
+    const nabChips=nabs.map((n,i)=>`<span class="nab-chip">${n}<button onclick="removeNabDod(${nab.id},${i})">×</button></span>`).join('');
+    const allNames=S.ministranci.map(m=>m.imie+' '+m.nazwisko);
+    return `<div class="nab-card">
+      <div class="nab-header">
+        <div class="nab-title"><i class="ti ti-candle"></i>Nabożeństwo: ${nab.nazwa}</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="pts-badge pb-gold">dod. ${pktStr(Number(nab.pktDodatkowy)||1)}</span>
+          <span style="font-size:12px;color:#633806">${nabs.length} zapisanych</span>
+        </div>
+      </div>
+      <div class="coll-section" style="border-top:1px solid #FAC775">
+        <div class="coll-header" style="background:#FAEEDA30" onclick="toggleSec('${secKey}')">
+          <span style="color:#633806"><i class="ti ti-users" style="font-size:13px;vertical-align:-1px"></i> Lista obecności nabożeństwa</span>
+          <i class="ti ${collapsed?'ti-chevron-down':'ti-chevron-up'}" style="font-size:14px;color:var(--gold)"></i>
+        </div>
+        ${!collapsed?`<div class="coll-body" style="background:#FAEEDA10">
+          ${nabChips?`<div class="chips">${nabChips}</div>`:''}
+          <datalist id="dl_nab_${nab.id}">${allNames.map(n=>`<option value="${n}">`).join('')}</datalist>
+          <div class="input-row">
+            <input list="dl_nab_${nab.id}" placeholder="Imię i nazwisko…" value="${S.nabInputs[nab.id]||''}" oninput="S.nabInputs[${nab.id}]=this.value" onkeydown="if(event.key==='Enter')addNabDod(${nab.id})">
+            <button onclick="addNabDod(${nab.id})" style="background:var(--gold)">Dodaj</button>
+          </div>
+        </div>`:''}
+      </div>
+    </div>`;
+  }).join('');
+
+  if(!mszeD.length&&!nabDnia.length&&!banner)
+    return`<div class="empty-state" style="padding:3rem"><i class="ti ti-calendar-off" style="font-size:36px;display:block;margin-bottom:10px"></i>Brak mszy zaplanowanych na dziś.</div>`;
+
+  const now=new Date();
+  const hh=now.getHours().toString().padStart(2,'0'),mm=now.getMinutes().toString().padStart(2,'0');
+  const statusBar=isSaved
+    ?`<div class="status-bar saved"><span><i class="ti ti-circle-check" style="vertical-align:-2px"></i> Punkty za dzisiejszy dzień zostały zapisane</span></div>`
+    :`<div class="status-bar"><span><i class="ti ti-clock-play" style="vertical-align:-2px"></i> Punkty zostaną zapisane automatycznie o północy</span><span style="font-family:monospace">${hh}:${mm}</span></div>`;
+
+  return banner+mszCards+nabCards+statusBar;
+}
+
+// ── RENDER PUNKTY ──
+function renderPunkty(){
+  let mins=[...S.ministranci];
+  const k=S.sortPkKey,d=S.sortPkDir;
+  mins.sort((a,b)=>{
+    let va=k==='punkty'?(Number(S.punkty[a.id])||0):k==='kat'?a.kat:(a[k]||'');
+    let vb=k==='punkty'?(Number(S.punkty[b.id])||0):k==='kat'?b.kat:(b[k]||'');
+    return typeof va==='number'?d*(va-vb):d*String(va).localeCompare(String(vb),'pl');
+  });
+  function th(key,label){
+    const a=S.sortPkKey===key,arr=a?(S.sortPkDir===1?'↑':'↓'):'↕';
+    return `<th class="${a?'sort-active':''}" onclick="sortPk('${key}')">${label}<span class="sort-arrow">${arr}</span></th>`;
+  }
+  const rows=mins.map((m,i)=>{
+    const p=Number(S.punkty[m.id])||0;
+    return `<tr><td style="color:var(--text3);font-size:12px;width:36px">${i+1}</td>
+      <td>${m.imie}</td><td>${m.nazwisko}</td>
+      <td><span class="${KAT_CSS[m.kat]||'kat-ministrant'}">${m.kat}</span></td>
+      <td class="${p>=10?'pts-good':'pts-bad'}" style="font-size:16px">${p}</td></tr>`;
+  }).join('');
+  return `<div class="panel-section">
+    <h2><i class="ti ti-trophy"></i>Tabela punktów</h2>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th class="no-sort">#</th>${th('imie','Imię')}${th('nazwisko','Nazwisko')}${th('kat','Kategoria')}${th('punkty','Punkty')}</tr></thead>
+      <tbody>${rows||'<tr><td colspan="5" style="text-align:center;padding:1rem;color:var(--text3)">Brak ministrantów</td></tr>'}</tbody>
+    </table></div>
+  </div>`;
+}
+function sortPk(key){if(S.sortPkKey===key)S.sortPkDir*=-1;else{S.sortPkKey=key;S.sortPkDir=1;}render();}
+
+// ── RENDER HISTORIA ──
+function renderHistoria(){
+  const typL={obl:'Obow. ✓',nob:'Obow. ✗',dod:'Dod. ✓',nab:'Nabożeństwo'};
+  const typS={obl:'lt-obl',nob:'lt-nob',dod:'lt-dod',nab:'lt-nab'};
+  let logi=[...S.logi];
+  if(S.logFilterMin)logi=logi.filter(l=>l.ministrantId==S.logFilterMin);
+  if(S.logFilterDateFrom)logi=logi.filter(l=>l.data>=S.logFilterDateFrom);
+  if(S.logFilterDateTo)logi=logi.filter(l=>l.data<=S.logFilterDateTo);
+  if(S.logFilterTyp)logi=logi.filter(l=>l.typ===S.logFilterTyp);
+  logi.sort((a,b)=>b.data.localeCompare(a.data));
+  const grupy={};logi.forEach(l=>{if(!grupy[l.data])grupy[l.data]=[];grupy[l.data].push(l);});
+  const daty=Object.keys(grupy).sort((a,b)=>b.localeCompare(a));
+  const minOpts=S.ministranci.map(m=>`<option value="${m.id}">${m.imie} ${m.nazwisko}</option>`).join('');
+  const hasFilters=S.logFilterMin||S.logFilterDateFrom||S.logFilterDateTo||S.logFilterTyp;
+  const filters=`<div class="log-filters">
+    <select onchange="S.logFilterMin=this.value;render()" style="min-width:160px">
+      <option value="">Wszyscy ministranci</option>${minOpts}
+    </select>
+    <input type="date" value="${S.logFilterDateFrom}" onchange="S.logFilterDateFrom=this.value;render()" title="Od daty">
+    <input type="date" value="${S.logFilterDateTo}" onchange="S.logFilterDateTo=this.value;render()" title="Do daty">
+    <select onchange="S.logFilterTyp=this.value;render()">
+      <option value="">Wszystkie typy</option>
+      <option value="obl">Obecność obowiązkowa</option>
+      <option value="nob">Nieobecność obowiązkowa</option>
+      <option value="dod">Obecność dodatkowa</option>
+      <option value="nab">Nabożeństwo</option>
+    </select>
+    ${hasFilters?`<button class="btn-secondary" onclick="S.logFilterMin='';S.logFilterDateFrom='';S.logFilterDateTo='';S.logFilterTyp='';render()"><i class="ti ti-x" style="font-size:13px;vertical-align:-2px"></i> Wyczyść</button>`:''}
+    <span style="font-size:12px;color:var(--text3);margin-left:auto">${logi.length} wpisów</span>
+  </div>`;
+  const body=daty.map(data=>{
+    const wpisy=grupy[data];
+    const suma=wpisy.reduce((s,l)=>s+Number(l.delta),0);
+    const entries=wpisy.map(l=>{
+      const m=fMin(l.ministrantId);
+      return `<div class="log-entry">
+        <span class="log-delta ${Number(l.delta)>0?'pos':Number(l.delta)<0?'neg':'zero'}">${pktStr(Number(l.delta))}</span>
+        <span class="log-name">${m?m.imie+' '+m.nazwisko:'?'}</span>
+        <span class="log-reason">${l.powod}</span>
+        <span class="log-type ${typS[l.typ]||''}">${typL[l.typ]||l.typ}</span>
+      </div>`;
+    }).join('');
+    return `<div class="log-group">
+      <div class="log-group-hdr">
+        <span class="log-group-date"><i class="ti ti-calendar" style="font-size:13px;vertical-align:-1px;margin-right:4px"></i>${fdShort(data)} — ${DAYS[dowOf(data)]}</span>
+        <span class="log-group-sum">suma: <strong style="${suma>=0?'color:var(--green)':'color:var(--red)'}">${pktStr(suma)}</strong></span>
+      </div>${entries}
+    </div>`;
+  }).join('');
+  return `<div class="panel-section">
+    <h2><i class="ti ti-history"></i>Historia punktów</h2>
+    ${filters}
+    ${daty.length?body:`<div class="empty-state" style="padding:2rem"><i class="ti ti-history" style="font-size:32px;display:block;margin-bottom:8px"></i>Brak wpisów spełniających kryteria.</div>`}
+  </div>`;
+}
+
+// ── RENDER OPIEKUN ──
+function renderOpiekun(){
+  function thO(key,label){
+    const a=S.sortOpKey===key,arr=a?(S.sortOpDir===1?'↑':'↓'):'↕';
+    return `<th class="${a?'sort-active':''}" onclick="sortOp('${key}')">${label}<span class="sort-arrow">${arr}</span></th>`;
+  }
+  let mins=[...S.ministranci];
+  mins.sort((a,b)=>{
+    const k=S.sortOpKey,d=S.sortOpDir;
+    let va=k==='punkty'?(Number(S.punkty[a.id])||0):k==='kat'?a.kat:(a[k]||'');
+    let vb=k==='punkty'?(Number(S.punkty[b.id])||0):k==='kat'?b.kat:(b[k]||'');
+    return typeof va==='number'?d*(va-vb):d*String(va).localeCompare(String(vb),'pl');
+  });
+  const minRows=mins.map(m=>`<tr>
+    <td>${m.imie}</td><td>${m.nazwisko}</td>
+    <td><span class="${KAT_CSS[m.kat]||'kat-ministrant'}">${m.kat}</span></td>
+    <td class="${(Number(S.punkty[m.id])||0)>=10?'pts-good':'pts-bad'}">${Number(S.punkty[m.id])||0}</td>
+    <td><button class="btn-danger" onclick="deleteMin(${m.id})">Usuń</button></td>
+  </tr>`).join('');
+  const dayTiles=DAYSSHORT.map((d,i)=>`<button type="button" class="day-tile${S.newMszaDni.includes(i)?' sel':''}" onclick="toggleDay(${i})" title="${DAYS[i]}">${d}</button>`).join('');
+  const daysInfo=S.newMszaDni.length===0
+    ?`<div class="days-info" style="color:var(--red)"><i class="ti ti-alert-circle" style="font-size:11px"></i> Wybierz co najmniej jeden dzień</div>`
+    :`<div class="days-info" style="color:var(--green)">✓ ${S.newMszaDni.map(i=>DAYS[i]).join(', ')}</div>`;
+  const mszaRows=S.msze.map(m=>`<tr>
+    <td>${m.godzina}</td><td>${m.nazwa}</td>
+    <td style="font-size:12px;color:var(--text2)">${m.dni&&m.dni.map?m.dni.map(i=>DAYSSHORT[i]).join(', '):m.dni}</td>
+    <td><span class="pts-badge pb-green">${pktStr(Number(m.pktObecny)||2)}</span></td>
+    <td><span class="pts-badge ${(Number(m.pktNieobecny)||0)<0?'pb-red':''}">${pktStr(Number(m.pktNieobecny)||0)}</span></td>
+    <td><span class="pts-badge pb-blue">${pktStr(Number(m.pktDodatkowy)||1)}</span></td>
+    <td><button class="btn-danger" onclick="deleteMsza(${m.id})">Usuń</button></td>
+  </tr>`).join('');
+  const minOpts=S.ministranci.map(m=>`<option value="${m.id}">${m.imie} ${m.nazwisko}</option>`).join('');
+  const mszaOpts=S.msze.map(m=>`<option value="${m.id}">${m.godzina} – ${m.nazwa}</option>`).join('');
+  const grafRows=S.grafik.map(g=>{
+    const m=fMin(g.ministrantId),ms=fMsza(g.mszaId);
+    return `<tr><td>${ms?ms.godzina+' '+ms.nazwa:'?'}</td><td>${m?m.imie+' '+m.nazwisko:'?'}</td>
+      <td>${DAYS[Number(g.dow)]||'?'}</td>
+      <td><button class="btn-danger" onclick="deleteGrafik(${g.mszaId},${g.ministrantId},${g.dow})">Usuń</button></td></tr>`;
+  }).join('');
+  const swRows=S.swieta.map(s=>`<tr><td>${s}</td><td>${isSunday(s)?'Niedziela':'Święto'}</td>
+    <td><button class="btn-danger" onclick="deleteSwiety('${s}')">Usuń</button></td></tr>`).join('');
+  const nabRows=S.nabozenstwaDef.map(n=>`<tr><td>${n.data}</td><td>${n.nazwa}</td>
+    <td><span class="pts-badge pb-gold">${pktStr(Number(n.pktDodatkowy)||1)}</span></td>
+    <td><button class="btn-danger" onclick="deleteNab(${n.id})">Usuń</button></td></tr>`).join('');
+  const minGrafRows=mins.map(m=>{
+    const wpisy=S.grafik.filter(g=>g.ministrantId==m.id);
+    const pills=wpisy.map(g=>{const ms=fMsza(g.mszaId);return ms?`<span style="font-size:11px;padding:2px 7px;border-radius:20px;background:var(--bg2);border:1px solid var(--border);margin:2px;display:inline-block">${DAYSSHORT[Number(g.dow)]} ${ms.godzina}</span>`:''}).join('');
+    return `<tr><td>${m.imie} ${m.nazwisko}</td><td><span class="${KAT_CSS[m.kat]||'kat-ministrant'}">${m.kat}</span></td>
+      <td style="font-weight:600">${wpisy.length}</td><td>${pills||'<span style="color:var(--text3);font-size:12px">brak</span>'}</td></tr>`;
+  }).join('');
+  const dayObs=DAYS.map((day,i)=>{
+    const ids=[...new Set(S.grafik.filter(g=>Number(g.dow)===i).map(g=>g.ministrantId))];
+    const isEmpty=ids.length===0;
+    const pills=ids.map(id=>{const m=fMin(id);return m?`<span style="font-size:11px;padding:2px 7px;border-radius:20px;background:var(--green-light);color:var(--green);margin:2px;display:inline-block">${m.imie} ${m.nazwisko[0]}.</span>`:''}).join('');
+    return `<tr class="${isEmpty?'day-row-empty':''}">
+      <td class="day-cell" style="${i===0||i===6?'font-weight:600':''}">${day}${i===0||i===6?` <span class="holiday-badge">N</span>`:''}</td>
+      <td style="${isEmpty?'color:var(--red);font-weight:600':'font-weight:600'}">${isEmpty?'⚠':ids.length}</td>
+      <td>${pills||'<span style="font-size:12px;color:var(--red)">brak!</span>'}</td></tr>`;
+  }).join('');
+
+  return `
+  <div class="panel-section"><h2><i class="ti ti-users"></i>Ministranci</h2>
+    <div class="form-card"><div class="form-row">
+      <div class="fg" style="flex:1"><label>Imię</label><input placeholder="Jan" value="${S.newMin.imie}" oninput="S.newMin.imie=this.value"></div>
+      <div class="fg" style="flex:1"><label>Nazwisko</label><input placeholder="Kowalski" value="${S.newMin.nazwisko}" oninput="S.newMin.nazwisko=this.value"></div>
+      <div class="fg"><label>Kategoria</label><select onchange="S.newMin.kat=this.value">
+        ${['kandydat','ministrant','lektor','animator'].map(k=>`<option value="${k}" ${S.newMin.kat===k?'selected':''}>${k}</option>`).join('')}
+      </select></div>
+      <button class="btn-primary" onclick="addMin()">Dodaj</button>
+    </div></div>
+    <div class="tbl-wrap"><table>
+      <thead><tr>${thO('imie','Imię')}${thO('nazwisko','Nazwisko')}${thO('kat','Kategoria')}${thO('punkty','Punkty')}<th class="no-sort"></th></tr></thead>
+      <tbody>${minRows||'<tr><td colspan="5" style="text-align:center;padding:1rem;color:var(--text3)">Brak ministrantów</td></tr>'}</tbody>
+    </table></div>
+  </div>
+
+  <div class="panel-section"><h2><i class="ti ti-building-church"></i>Msze święte</h2>
+    <div class="form-card">
+      <div class="form-row">
+        <div class="fg"><label>Godzina</label><input style="width:82px" placeholder="10:00" value="${S.newMszaGodzina}" oninput="S.newMszaGodzina=this.value"></div>
+        <div class="fg" style="flex:1"><label>Nazwa</label><input placeholder="Msza niedzielna" value="${S.newMszaNazwa}" oninput="S.newMszaNazwa=this.value"></div>
+        <button class="btn-primary" onclick="addMsza()">Dodaj</button>
+      </div>
+      <div class="days-label">Dni tygodnia</div>
+      <div class="days-picker">${dayTiles}</div>${daysInfo}
+      <div class="pts-row">
+        <div class="pts-grp"><label>Obecność obow.</label><input type="number" value="${S.newMszaPktObecny}" oninput="S.newMszaPktObecny=parseInt(this.value)||0"></div>
+        <div class="pts-grp"><label>Nieobecność</label><input type="number" value="${S.newMszaPktNieobecny}" oninput="S.newMszaPktNieobecny=parseInt(this.value)||0"></div>
+        <div class="pts-grp"><label>Obecność dod.</label><input type="number" value="${S.newMszaPktDodatkowy}" oninput="S.newMszaPktDodatkowy=parseInt(this.value)||0"></div>
+      </div>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th class="no-sort">Godz.</th><th class="no-sort">Nazwa</th><th class="no-sort">Dni</th><th class="no-sort" title="Obecność obowiązkowa">Ob.✓</th><th class="no-sort" title="Nieobecność">Ob.✗</th><th class="no-sort" title="Dodatkowa">Dod.</th><th class="no-sort"></th></tr></thead>
+      <tbody>${mszaRows||'<tr><td colspan="7" style="text-align:center;padding:1rem;color:var(--text3)">Brak mszy</td></tr>'}</tbody>
+    </table></div>
+  </div>
+
+  <div class="panel-section"><h2><i class="ti ti-calendar-week"></i>Grafik tygodniowy</h2>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:8px"><i class="ti ti-info-circle" style="font-size:12px;vertical-align:-1px"></i> Wpisy powtarzają się automatycznie co tydzień.</p>
+    <div class="form-card"><div class="form-row">
+      <div class="fg"><label>Msza</label><select onchange="S.newGrafikMszaId=parseInt(this.value)"><option value="">Wybierz…</option>${mszaOpts}</select></div>
+      <div class="fg"><label>Ministrant</label><select onchange="S.newGrafikMinId=parseInt(this.value)"><option value="">Wybierz…</option>${minOpts}</select></div>
+      <div class="fg"><label>Dzień tygodnia</label><select onchange="S.newGrafikDow=parseInt(this.value)">${DAYS.map((d,i)=>`<option value="${i}" ${S.newGrafikDow===i?'selected':''}>${d}</option>`).join('')}</select></div>
+      <button class="btn-primary" onclick="addGrafik()">Dodaj</button>
+    </div></div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th class="no-sort">Msza</th><th class="no-sort">Ministrant</th><th class="no-sort">Dzień</th><th class="no-sort"></th></tr></thead>
+      <tbody>${grafRows||'<tr><td colspan="4" style="text-align:center;padding:1rem;color:var(--text3)">Brak wpisów</td></tr>'}</tbody>
+    </table></div>
+  </div>
+
+  <div class="panel-section"><h2><i class="ti ti-star"></i>Święta i uroczystości</h2>
+    <div class="form-card"><div class="form-row">
+      <div class="fg"><label>Data</label><input type="date" value="${S.newSwiety}" oninput="S.newSwiety=this.value"></div>
+      <button class="btn-primary" onclick="addSwiety()">Dodaj święto</button>
+    </div></div>
+    <div class="tbl-wrap"><table><thead><tr><th class="no-sort">Data</th><th class="no-sort">Typ</th><th class="no-sort"></th></tr></thead>
+      <tbody>${swRows||'<tr><td colspan="3" style="text-align:center;padding:.75rem;color:var(--text3)">Brak</td></tr>'}</tbody>
+    </table></div>
+    <p style="margin-top:6px;font-size:12px;color:var(--text2)">Niedziele są automatycznie traktowane jako świąteczne.</p>
+  </div>
+
+  <div class="panel-section"><h2><i class="ti ti-candle"></i>Nabożeństwa</h2>
+    <div class="form-card"><div class="form-row">
+      <div class="fg"><label>Data</label><input type="date" value="${S.newNabData}" oninput="S.newNabData=this.value"></div>
+      <div class="fg" style="flex:1"><label>Nazwa</label><input placeholder="Majówka, Droga Krzyżowa…" value="${S.newNabNazwa}" oninput="S.newNabNazwa=this.value"></div>
+      <div class="pts-grp" style="align-self:flex-end"><label>Pkt dod.</label><input type="number" value="${S.newNabPktDodatkowy}" oninput="S.newNabPktDodatkowy=parseInt(this.value)||0"></div>
+      <button class="btn-primary" onclick="addNab()">Dodaj</button>
+    </div></div>
+    <div class="tbl-wrap"><table><thead><tr><th class="no-sort">Data</th><th class="no-sort">Nazwa</th><th class="no-sort">Pkt dod.</th><th class="no-sort"></th></tr></thead>
+      <tbody>${nabRows||'<tr><td colspan="4" style="text-align:center;padding:.75rem;color:var(--text3)">Brak</td></tr>'}</tbody>
+    </table></div>
+  </div>
+
+  <div class="grid-2">
+    <div class="panel-section"><h2><i class="ti ti-chart-bar"></i>Ministrant → msze</h2>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th class="no-sort">Ministrant</th><th class="no-sort">Kat.</th><th class="no-sort">#</th><th class="no-sort">Terminy</th></tr></thead>
+        <tbody>${minGrafRows}</tbody>
+      </table></div>
+    </div>
+    <div class="panel-section"><h2><i class="ti ti-calendar"></i>Dni tygodnia — obsada</h2>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th class="no-sort">Dzień</th><th class="no-sort">#</th><th class="no-sort">Ministranci</th></tr></thead>
+        <tbody>${dayObs}</tbody>
+      </table></div>
+      <p style="margin-top:6px;font-size:12px;color:var(--text2)"><span style="color:var(--red)">⚠</span> = brak ministrantów w danym dniu</p>
+    </div>
+  </div>`;
+}
+function sortOp(key){if(S.sortOpKey===key)S.sortOpDir*=-1;else{S.sortOpKey=key;S.sortOpDir=1;}render();}
+
+// ── RENDER ──
+function render(){
+  const content=document.getElementById('main-content');
+  if(!content)return;
+  if(S.tab==='dzis')content.innerHTML=renderDzis();
+  else if(S.tab==='punkty')content.innerHTML=renderPunkty();
+  else if(S.tab==='historia')content.innerHTML=renderHistoria();
+  else content.innerHTML=renderOpiekun();
+}
+
+// ── START ──
+init();
+</script>
+</body>
+</html>
