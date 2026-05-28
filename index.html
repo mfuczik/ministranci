@@ -13,7 +13,7 @@
    (instrukcja w pliku INSTRUKCJA.md)
 ═══════════════════════════════════════════ */
 :root{
-  --api: 'https://script.google.com/macros/s/AKfycbx7UmImrIfX7GKmPyvQYeNqJ9Gces3btydyaeolpc9Q8lmhO1RWee8LLj2M-w9hrtzbYA/exec';
+  --api: 'https://script.google.com/macros/s/AKfycbwW9oYiq4hUXpwEh9YyIYqpPlDwuKL6yqyOhSpKoeRCScm8sfojsYlynDoMvB6eevA-_w/exec';
 
   --green:#2D6A1F;--green-light:#EAF3DE;--green-mid:#639922;
   --red:#A32D2D;--red-light:#FCEBEB;
@@ -253,24 +253,20 @@ tr:hover td{background:var(--bg2)}
 
 <script>
 // ═══════════════════════════════════════════════
-//  KONFIGURACJA — wklej swój Apps Script URL
+//  KONFIGURACJA
 // ═══════════════════════════════════════════════
-const API_URL = 'https://script.google.com/macros/s/AKfycbx7UmImrIfX7GKmPyvQYeNqJ9Gces3btydyaeolpc9Q8lmhO1RWee8LLj2M-w9hrtzbYA/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbwW9oYiq4hUXpwEh9YyIYqpPlDwuKL6yqyOhSpKoeRCScm8sfojsYlynDoMvB6eevA-_w/exec';
 
-// ── STAŁE ──
 const DAYS=['niedziela','poniedziałek','wtorek','środa','czwartek','piątek','sobota'];
 const DAYSSHORT=['nd','pn','wt','śr','cz','pt','sb'];
 const MONTHS=['stycznia','lutego','marca','kwietnia','maja','czerwca','lipca','sierpnia','września','października','listopada','grudnia'];
 const KAT_CSS={kandydat:'kat-kandydat',ministrant:'kat-ministrant',lektor:'kat-lektor',animator:'kat-animator'};
 
-// ── STAN ──
 let S={
-  tab:'dzis',
-  date:new Date(),
+  tab:'dzis', date:new Date(),
   ministranci:[],msze:[],grafik:[],swieta:[],nabozenstwaDef:[],
   obecnosci:{},dodatkowi:{},nabDodatkowi:{},punkty:{},
-  savedDays:{},logi:[],
-  lastOpenedDate:null,catchupDays:[],
+  savedDays:{},logi:[],lastOpenedDate:null,catchupDays:[],
   extraInputs:{},nabInputs:{},collapsed:{},
   newMin:{imie:'',nazwisko:'',kat:'ministrant'},
   newMszaDni:[],newMszaGodzina:'',newMszaNazwa:'',
@@ -278,11 +274,12 @@ let S={
   newGrafikMszaId:'',newGrafikMinId:'',newGrafikDow:1,
   newSwiety:'',newNabData:'',newNabNazwa:'',newNabPktDodatkowy:1,
   logFilterMin:'',logFilterDateFrom:'',logFilterDateTo:'',logFilterTyp:'',
+  punktyMiesiac: new Date().getMonth(), punktyRok: new Date().getFullYear(),
   sortPkKey:'punkty',sortPkDir:-1,
+  sortPkMiesiacKey:'punkty',sortPkMiesiacDir:-1,
   sortOpKey:'nazwisko',sortOpDir:1,
 };
 
-// ── HELPERS ──
 function dk(d){return d instanceof Date?d.toISOString().slice(0,10):String(d)}
 function fdShort(d){const dd=typeof d==='string'?new Date(d+'T12:00'):d;return `${dd.getDate()}.${dd.getMonth()+1}.${dd.getFullYear()}`}
 function fdLong(d){const dd=typeof d==='string'?new Date(d+'T12:00'):d;return `${DAYS[dd.getDay()]}, ${dd.getDate()} ${MONTHS[dd.getMonth()]} ${dd.getFullYear()}`}
@@ -301,17 +298,13 @@ function toast(msg,type='ok',ms=2500){
   t.textContent=msg;t.className='show '+(type==='ok'?'ok':'err');
   clearTimeout(t._t);t._t=setTimeout(()=>t.className='',ms);
 }
-
 function setSyncStatus(status){
-  const dot=document.getElementById('sync-dot');
-  const lbl=document.getElementById('sync-label');
+  const dot=document.getElementById('sync-dot'),lbl=document.getElementById('sync-label');
   if(status==='ok'){dot.className='sync-dot ok';lbl.textContent='Zsynchronizowano';}
   else if(status==='err'){dot.className='sync-dot err';lbl.textContent='Błąd połączenia';}
   else{dot.className='sync-dot loading';lbl.textContent='Synchronizacja…';}
 }
-
-// ── API ──
-async function apiCall(action, data={}){
+async function apiCall(action,data={}){
   setSyncStatus('loading');
   try{
     const params=new URLSearchParams({action,...data});
@@ -326,8 +319,11 @@ async function apiCall(action, data={}){
   }
 }
 
-
 // ── LOGIKA ──
+// grafik: {mszaId, ministrantId, dow}
+// msza pojawia się w dniu jeśli jej dni[] zawiera ten dow
+// ministranci obowiązkowi = grafik gdzie mszaId i dow pasują do dnia
+
 function mszeDnia(dateStr){
   const dow=dowOf(dateStr),holiday=isHoliday(dateStr);
   return S.msze.filter(m=>{
@@ -337,13 +333,18 @@ function mszeDnia(dateStr){
     return !(dni.length===1&&dni[0]===0)&&dni.includes(dow);
   }).sort((a,b)=>a.godzina.localeCompare(b.godzina));
 }
-function grafikMszy(mszaId,dow){return S.grafik.filter(g=>g.mszaId==mszaId&&Number(g.dow)===dow);}
+
+// Ministranci obowiązkowi na danej mszy w danym dniu tygodnia
+function grafikMszyDow(mszaId, dow){
+  return S.grafik.filter(g=>g.mszaId==mszaId && Number(g.dow)===dow);
+}
 
 async function zapiszDzien(dateStr){
   if(S.savedDays[dateStr])return false;
+  const dow=dowOf(dateStr);
   const entries=[];
   mszeDnia(dateStr).forEach(msza=>{
-    grafikMszy(msza.id,dowOf(dateStr)).forEach(g=>{
+    grafikMszyDow(msza.id, dow).forEach(g=>{
       const byl=!!S.obecnosci[`${dateStr}_${msza.id}_${g.ministrantId}`];
       const delta=byl?(Number(msza.pktObecny)||2):(Number(msza.pktNieobecny)||0);
       if(!S.punkty[g.ministrantId])S.punkty[g.ministrantId]=0;
@@ -355,7 +356,6 @@ async function zapiszDzien(dateStr){
     });
   });
   S.savedDays[dateStr]=true;
-  // Zapisz do Google Sheets
   if(entries.length>0){
     await apiCall('saveLogi',{logi:JSON.stringify(entries),punkty:JSON.stringify(S.punkty),savedDay:dateStr});
   } else {
@@ -374,12 +374,10 @@ async function catchUpOnStart(){
       cursor=addDays(cursor,1);
     }
   }
-  S.lastOpenedDate=today;
-  S.date=new Date();
+  S.lastOpenedDate=today;S.date=new Date();
   await apiCall('saveLastOpened',{date:today});
 }
 
-// ── INIT ──
 async function init(){
   const data=await apiCall('getAll');
   if(!data||!data.ok){
@@ -387,30 +385,20 @@ async function init(){
       <div style="text-align:center;padding:2rem">
         <div style="font-size:28px;margin-bottom:12px">⚠️</div>
         <div style="font-family:var(--font-display);font-size:18px;margin-bottom:8px;color:var(--red)">Błąd połączenia z bazą danych</div>
-        <div style="font-size:13px;color:var(--text2);max-width:340px">Sprawdź czy wkleiłeś poprawny URL Apps Script w pliku index.html (zmienna API_URL).<br><br>Błąd: ${data?.error||'brak odpowiedzi'}</div>
+        <div style="font-size:13px;color:var(--text2);max-width:340px">Sprawdź URL Apps Script.<br><br>Błąd: ${data?.error||'brak odpowiedzi'}</div>
       </div>`;
     return;
   }
-  S.ministranci=data.ministranci||[];
-  S.msze=data.msze||[];
-  S.grafik=data.grafik||[];
-  S.swieta=data.swieta||[];
-  S.nabozenstwaDef=data.nabozenstwaDef||[];
-  S.obecnosci=data.obecnosci||{};
-  S.dodatkowi=data.dodatkowi||{};
-  S.nabDodatkowi=data.nabDodatkowi||{};
-  S.punkty=data.punkty||{};
-  S.savedDays=data.savedDays||{};
-  S.logi=data.logi||[];
+  S.ministranci=data.ministranci||[];S.msze=data.msze||[];S.grafik=data.grafik||[];
+  S.swieta=data.swieta||[];S.nabozenstwaDef=data.nabozenstwaDef||[];
+  S.obecnosci=data.obecnosci||{};S.dodatkowi=data.dodatkowi||{};
+  S.nabDodatkowi=data.nabDodatkowi||{};S.punkty=data.punkty||{};
+  S.savedDays=data.savedDays||{};S.logi=data.logi||[];
   S.lastOpenedDate=data.lastOpenedDate||null;
-
   await catchUpOnStart();
-
   document.getElementById('loading-screen').classList.add('hidden');
   document.getElementById('app-shell').style.display='';
-  updateTopbarDate();
-  render();
-  setSyncStatus('ok');
+  updateTopbarDate();render();setSyncStatus('ok');
 }
 
 function updateTopbarDate(){
@@ -418,21 +406,15 @@ function updateTopbarDate(){
   if(el)el.textContent=fdLong(S.date);
 }
 
-// Sprawdzaj zmianę dnia co minutę
 let _lastChecked=todayStr();
 setInterval(async()=>{
   const now=todayStr();
   if(now!==_lastChecked){
-    await zapiszDzien(_lastChecked);
-    _lastChecked=now;
-    S.date=new Date();
-    S.catchupDays=[];
-    updateTopbarDate();
-    render();
+    await zapiszDzien(_lastChecked);_lastChecked=now;
+    S.date=new Date();S.catchupDays=[];updateTopbarDate();render();
   }
 },60000);
 
-// ── TAB ──
 function setTab(tab){
   S.tab=tab;
   document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
@@ -446,7 +428,6 @@ function toggleOb(mszaId,mId,dateStr){
   if(S.savedDays[dateStr])return;
   const k=`${dateStr}_${mszaId}_${mId}`;
   S.obecnosci[k]=!S.obecnosci[k];
-  // Zapisz async do sheets
   apiCall('saveObecnosc',{key:k,val:S.obecnosci[k]?'1':'0'});
   render();
 }
@@ -454,30 +435,25 @@ function addDod(mszaId,dateStr){
   if(S.savedDays[dateStr])return;
   const ik=`${mszaId}_${dateStr}`,val=(S.extraInputs[ik]||'').trim();if(!val)return;
   const key=`${dateStr}_${mszaId}`;if(!S.dodatkowi[key])S.dodatkowi[key]=[];
-  const oblIds=grafikMszy(mszaId,dowOf(dateStr)).map(g=>g.ministrantId);
-  const min=S.ministranci.find(m=>(m.imie+' '+m.nazwisko).toLowerCase()===val.toLowerCase()&&!oblIds.includes(m.id));
+  const dow=dowOf(dateStr);
+  const oblIds=grafikMszyDow(mszaId,dow).map(g=>String(g.ministrantId));
+  const min=S.ministranci.find(m=>(m.imie+' '+m.nazwisko).toLowerCase()===val.toLowerCase()&&!oblIds.includes(String(m.id)));
   const label=min?(min.imie+' '+min.nazwisko):val;
   if(S.dodatkowi[key].includes(label))return;
-  S.dodatkowi[key].push(label);
-  S.extraInputs[ik]='';
-  apiCall('saveDodatkowi',{key,list:JSON.stringify(S.dodatkowi[key])});
-  render();
+  S.dodatkowi[key].push(label);S.extraInputs[ik]='';
+  apiCall('saveDodatkowi',{key,list:JSON.stringify(S.dodatkowi[key])});render();
 }
 function removeDod(mszaId,dateStr,i){
   if(S.savedDays[dateStr])return;
-  const key=`${dateStr}_${mszaId}`;
-  S.dodatkowi[key].splice(i,1);
-  apiCall('saveDodatkowi',{key,list:JSON.stringify(S.dodatkowi[key])});
-  render();
+  const key=`${dateStr}_${mszaId}`;S.dodatkowi[key].splice(i,1);
+  apiCall('saveDodatkowi',{key,list:JSON.stringify(S.dodatkowi[key])});render();
 }
 function addNabDod(nabId){
   const val=(S.nabInputs[nabId]||'').trim();if(!val)return;
   if(!S.nabDodatkowi[nabId])S.nabDodatkowi[nabId]=[];
   if(S.nabDodatkowi[nabId].includes(val))return;
-  S.nabDodatkowi[nabId].push(val);
-  S.nabInputs[nabId]='';
-  apiCall('saveNabDodatkowi',{nabId,list:JSON.stringify(S.nabDodatkowi[nabId])});
-  render();
+  S.nabDodatkowi[nabId].push(val);S.nabInputs[nabId]='';
+  apiCall('saveNabDodatkowi',{nabId,list:JSON.stringify(S.nabDodatkowi[nabId])});render();
 }
 function removeNabDod(nabId,i){S.nabDodatkowi[nabId].splice(i,1);apiCall('saveNabDodatkowi',{nabId,list:JSON.stringify(S.nabDodatkowi[nabId])});render();}
 function toggleSec(key){S.collapsed[key]=!S.collapsed[key];render();}
@@ -496,7 +472,7 @@ async function deleteMin(id){
 async function addMsza(){
   const g=S.newMszaGodzina.trim(),n=S.newMszaNazwa.trim();if(!g||!n||!S.newMszaDni.length)return;
   const res=await apiCall('addMsza',{godzina:g,nazwa:n,dni:JSON.stringify(S.newMszaDni),pktObecny:S.newMszaPktObecny,pktNieobecny:S.newMszaPktNieobecny,pktDodatkowy:S.newMszaPktDodatkowy});
-  if(res.ok){S.msze.push(res.msza);S.newMszaGodzina='';S.newMszaNazwa='';S.newMszaDni=[];S.newMszaPktObecny=2;S.newMszaPktNieobecny=0;S.newMszaPktDodatkowy=1;toast('Dodano mszę');render();}
+  if(res.ok){S.msze.push(res.msza);S.newMszaGodzina='';S.newMszaNazwa='';S.newMszaDni=[];toast('Dodano mszę');render();}
   else toast('Błąd','err');
 }
 async function deleteMsza(id){
@@ -504,7 +480,7 @@ async function deleteMsza(id){
   if(res.ok){S.msze=S.msze.filter(m=>m.id!=id);toast('Usunięto');render();}
 }
 async function addGrafik(){
-  const{newGrafikMszaId:mszaId,newGrafikMinId:ministrantId,newGrafikDow:dow}=S;
+  const mszaId=S.newGrafikMszaId, ministrantId=S.newGrafikMinId, dow=S.newGrafikDow;
   if(!mszaId||!ministrantId)return;
   if(S.grafik.find(g=>g.mszaId==mszaId&&g.ministrantId==ministrantId&&Number(g.dow)===dow))return;
   const res=await apiCall('addGrafik',{mszaId,ministrantId,dow});
@@ -526,7 +502,7 @@ async function deleteSwiety(d){
 async function addNab(){
   const data=S.newNabData,nazwa=S.newNabNazwa.trim();if(!data||!nazwa)return;
   const res=await apiCall('addNab',{data,nazwa,pktDodatkowy:S.newNabPktDodatkowy});
-  if(res.ok){S.nabozenstwaDef.push(res.nab);S.newNabData='';S.newNabNazwa='';S.newNabPktDodatkowy=1;toast('Dodano nabożeństwo');render();}
+  if(res.ok){S.nabozenstwaDef.push(res.nab);S.newNabData='';S.newNabNazwa='';toast('Dodano nabożeństwo');render();}
 }
 async function deleteNab(id){
   const res=await apiCall('deleteNab',{id});
@@ -535,22 +511,20 @@ async function deleteNab(id){
 
 // ── RENDER DZIŚ ──
 function renderDzis(){
-  const dateStr=dk(S.date),holiday=isHoliday(dateStr);
+  const dateStr=dk(S.date),holiday=isHoliday(dateStr),dow=dowOf(dateStr);
   const mszeD=mszeDnia(dateStr),nabDnia=S.nabozenstwaDef.filter(n=>n.data===dateStr);
   const isSaved=!!S.savedDays[dateStr];
-
   const banner=S.catchupDays.length>0
     ?`<div class="catchup-banner"><i class="ti ti-clock-check" style="font-size:20px;flex-shrink:0"></i>
        <div><strong>Nadrobiono pominięte dni</strong><br>
-       Punkty doliczone automatycznie za: ${S.catchupDays.map(d=>`<strong>${fdLong(d)}</strong>`).join(', ')}.</div></div>`:'';
+       Punkty doliczone za: ${S.catchupDays.map(d=>`<strong>${fdLong(d)}</strong>`).join(', ')}.</div></div>`:'';
 
   const mszCards=mszeD.map(msza=>{
-    const dow=dowOf(dateStr),gDnia=grafikMszy(msza.id,dow);
+    const gDnia=grafikMszyDow(msza.id,dow);
     const oblMins=gDnia.map(g=>fMin(g.ministrantId)).filter(Boolean);
     const present=oblMins.filter(m=>S.obecnosci[`${dateStr}_${msza.id}_${m.id}`]).length;
     const dods=S.dodatkowi[`${dateStr}_${msza.id}`]||[];
     const secKey=`dod_${msza.id}`,collapsed=S.collapsed[secKey],ik=`${msza.id}_${dateStr}`;
-
     const rows=oblMins.map(m=>{
       const ch=!!S.obecnosci[`${dateStr}_${msza.id}_${m.id}`];
       const delta=ch?(Number(msza.pktObecny)||2):(Number(msza.pktNieobecny)||0);
@@ -564,14 +538,12 @@ function renderDzis(){
           <i class="ti ${ch?'ti-check':'ti-circle'}"></i></button>
       </div>`;
     }).join('');
-
     const dodChips=dods.map((n,i)=>`<span class="chip">${n}${!isSaved?`<button onclick="removeDod(${msza.id},'${dateStr}',${i})">×</button>`:''}</span>`).join('');
-    const oblIds=gDnia.map(g=>g.ministrantId);
-    const dostepni=S.ministranci.filter(m=>!oblIds.includes(m.id)&&!oblIds.includes(String(m.id))).map(m=>m.imie+' '+m.nazwisko);
+    const oblIds=gDnia.map(g=>String(g.ministrantId));
+    const dostepni=S.ministranci.filter(m=>!oblIds.includes(String(m.id))).map(m=>m.imie+' '+m.nazwisko);
     const pki=`<span class="pts-badge pb-green">obow. ${pktStr(Number(msza.pktObecny)||2)}</span>
       <span class="pts-badge pb-red">nieob. ${pktStr(Number(msza.pktNieobecny)||0)}</span>
       <span class="pts-badge pb-blue">dod. ${pktStr(Number(msza.pktDodatkowy)||1)}</span>`;
-
     return `<div class="card">
       <div class="card-header">
         <div class="card-title"><i class="ti ti-church" style="color:var(--green-mid)"></i>${msza.nazwa}
@@ -597,7 +569,7 @@ function renderDzis(){
           <div class="input-row">
             <input list="dl_${msza.id}_${dateStr}" placeholder="Imię i nazwisko…" value="${S.extraInputs[ik]||''}" oninput="S.extraInputs['${ik}']=this.value" onkeydown="if(event.key==='Enter')addDod(${msza.id},'${dateStr}')">
             <button onclick="addDod(${msza.id},'${dateStr}')">Dodaj</button>
-          </div>`:`<p style="font-size:12px;color:var(--text3);margin-top:4px"><i class="ti ti-lock" style="font-size:12px;vertical-align:-1px"></i> Dzień zapisany — edycja zablokowana.</p>`}
+          </div>`:`<p style="font-size:12px;color:var(--text3);margin-top:4px"><i class="ti ti-lock" style="font-size:12px;vertical-align:-1px"></i> Dzień zapisany.</p>`}
         </div>`:''}
       </div>
     </div>`;
@@ -617,7 +589,7 @@ function renderDzis(){
       </div>
       <div class="coll-section" style="border-top:1px solid #FAC775">
         <div class="coll-header" style="background:#FAEEDA30" onclick="toggleSec('${secKey}')">
-          <span style="color:#633806"><i class="ti ti-users" style="font-size:13px;vertical-align:-1px"></i> Lista obecności nabożeństwa</span>
+          <span style="color:#633806"><i class="ti ti-users" style="font-size:13px;vertical-align:-1px"></i> Lista obecności</span>
           <i class="ti ${collapsed?'ti-chevron-down':'ti-chevron-up'}" style="font-size:14px;color:var(--gold)"></i>
         </div>
         ${!collapsed?`<div class="coll-body" style="background:#FAEEDA10">
@@ -640,23 +612,40 @@ function renderDzis(){
   const statusBar=isSaved
     ?`<div class="status-bar saved"><span><i class="ti ti-circle-check" style="vertical-align:-2px"></i> Punkty za dzisiejszy dzień zostały zapisane</span></div>`
     :`<div class="status-bar"><span><i class="ti ti-clock-play" style="vertical-align:-2px"></i> Punkty zostaną zapisane automatycznie o północy</span><span style="font-family:monospace">${hh}:${mm}</span></div>`;
-
   return banner+mszCards+nabCards+statusBar;
 }
 
-// ── RENDER PUNKTY ──
+// ── RENDER PUNKTY (dwie tabele) ──
 function renderPunkty(){
-  let mins=[...S.ministranci];
-  const k=S.sortPkKey,d=S.sortPkDir;
-  mins.sort((a,b)=>{
-    let va=k==='punkty'?(Number(S.punkty[a.id])||0):k==='kat'?a.kat:(a[k]||'');
-    let vb=k==='punkty'?(Number(S.punkty[b.id])||0):k==='kat'?b.kat:(b[k]||'');
-    return typeof va==='number'?d*(va-vb):d*String(va).localeCompare(String(vb),'pl');
+  const miesiac=S.punktyMiesiac, rok=S.punktyRok;
+  const miesiacStr=`${rok}-${String(miesiac+1).padStart(2,'0')}`;
+  const logiMiesiac=S.logi.filter(l=>l.data&&l.data.startsWith(miesiacStr));
+  const punktyM={};
+  logiMiesiac.forEach(l=>{
+    if(!punktyM[l.ministrantId])punktyM[l.ministrantId]=0;
+    punktyM[l.ministrantId]+=Number(l.delta)||0;
   });
-  function th(key,label){
-    const a=S.sortPkKey===key,arr=a?(S.sortPkDir===1?'↑':'↓'):'↕';
-    return `<th class="${a?'sort-active':''}" onclick="sortPk('${key}')">${label}<span class="sort-arrow">${arr}</span></th>`;
+  const MIESIACE=['Styczeń','Luty','Marzec','Kwiecień','Maj','Czerwiec','Lipiec','Sierpień','Wrzesień','Październik','Listopad','Grudzień'];
+  function sortMins(key,dir){
+    return [...S.ministranci].sort((a,b)=>{
+      let va=key==='punkty'?(Number(S.punkty[a.id])||0):key==='punktyM'?(punktyM[a.id]||0):key==='kat'?a.kat:(a[key]||'');
+      let vb=key==='punkty'?(Number(S.punkty[b.id])||0):key==='punktyM'?(punktyM[b.id]||0):key==='kat'?b.kat:(b[key]||'');
+      return typeof va==='number'?dir*(va-vb):dir*String(va).localeCompare(String(vb),'pl');
+    });
   }
+  function th(key,label,sortKey,sortDir,fn){
+    const a=sortKey===key,arr=a?(sortDir===1?'↑':'↓'):'↕';
+    return `<th class="${a?'sort-active':''}" onclick="${fn}('${key}')">${label}<span class="sort-arrow">${arr}</span></th>`;
+  }
+  const minsM=sortMins(S.sortPkMiesiacKey,S.sortPkMiesiacDir);
+  const rowsM=minsM.map((m,i)=>{
+    const p=punktyM[m.id]||0;
+    return `<tr><td style="color:var(--text3);font-size:12px;width:36px">${i+1}</td>
+      <td>${m.imie}</td><td>${m.nazwisko}</td>
+      <td><span class="${KAT_CSS[m.kat]||'kat-ministrant'}">${m.kat}</span></td>
+      <td class="${p>0?'pts-good':p<0?'pts-bad':''}" style="font-size:16px">${p}</td></tr>`;
+  }).join('');
+  const mins=sortMins(S.sortPkKey,S.sortPkDir);
   const rows=mins.map((m,i)=>{
     const p=Number(S.punkty[m.id])||0;
     return `<tr><td style="color:var(--text3);font-size:12px;width:36px">${i+1}</td>
@@ -664,15 +653,31 @@ function renderPunkty(){
       <td><span class="${KAT_CSS[m.kat]||'kat-ministrant'}">${m.kat}</span></td>
       <td class="${p>=10?'pts-good':'pts-bad'}" style="font-size:16px">${p}</td></tr>`;
   }).join('');
-  return `<div class="panel-section">
-    <h2><i class="ti ti-trophy"></i>Tabela punktów</h2>
+  const miesiacOpts=MIESIACE.map((n,i)=>`<option value="${i}" ${i===miesiac?'selected':''}>${n}</option>`).join('');
+  const rokOpts=[rok-1,rok,rok+1].map(r=>`<option value="${r}" ${r===rok?'selected':''}>${r}</option>`).join('');
+  return `
+  <div class="panel-section">
+    <h2><i class="ti ti-calendar-stats"></i>Punkty miesięczne</h2>
+    <div style="display:flex;gap:8px;margin-bottom:1rem;align-items:center;flex-wrap:wrap">
+      <select style="height:34px;border:1px solid var(--border2);border-radius:var(--r-sm);padding:0 9px;font-size:13px;background:#fff" onchange="S.punktyMiesiac=parseInt(this.value);render()">${miesiacOpts}</select>
+      <select style="height:34px;border:1px solid var(--border2);border-radius:var(--r-sm);padding:0 9px;font-size:13px;background:#fff" onchange="S.punktyRok=parseInt(this.value);render()">${rokOpts}</select>
+      <span style="font-size:13px;color:var(--text2)">${logiMiesiac.length} zdarzeń</span>
+    </div>
     <div class="tbl-wrap"><table>
-      <thead><tr><th class="no-sort">#</th>${th('imie','Imię')}${th('nazwisko','Nazwisko')}${th('kat','Kategoria')}${th('punkty','Punkty')}</tr></thead>
+      <thead><tr><th class="no-sort">#</th>${th('imie','Imię',S.sortPkMiesiacKey,S.sortPkMiesiacDir,'sortPkM')}${th('nazwisko','Nazwisko',S.sortPkMiesiacKey,S.sortPkMiesiacDir,'sortPkM')}${th('kat','Kategoria',S.sortPkMiesiacKey,S.sortPkMiesiacDir,'sortPkM')}${th('punktyM','Punkty',S.sortPkMiesiacKey,S.sortPkMiesiacDir,'sortPkM')}</tr></thead>
+      <tbody>${rowsM||'<tr><td colspan="5" style="text-align:center;padding:1rem;color:var(--text3)">Brak ministrantów</td></tr>'}</tbody>
+    </table></div>
+  </div>
+  <div class="panel-section" style="margin-top:2rem">
+    <h2><i class="ti ti-trophy"></i>Punkty ogólne</h2>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th class="no-sort">#</th>${th('imie','Imię',S.sortPkKey,S.sortPkDir,'sortPk')}${th('nazwisko','Nazwisko',S.sortPkKey,S.sortPkDir,'sortPk')}${th('kat','Kategoria',S.sortPkKey,S.sortPkDir,'sortPk')}${th('punkty','Punkty',S.sortPkKey,S.sortPkDir,'sortPk')}</tr></thead>
       <tbody>${rows||'<tr><td colspan="5" style="text-align:center;padding:1rem;color:var(--text3)">Brak ministrantów</td></tr>'}</tbody>
     </table></div>
   </div>`;
 }
 function sortPk(key){if(S.sortPkKey===key)S.sortPkDir*=-1;else{S.sortPkKey=key;S.sortPkDir=1;}render();}
+function sortPkM(key){if(S.sortPkMiesiacKey===key)S.sortPkMiesiacDir*=-1;else{S.sortPkMiesiacKey=key;S.sortPkMiesiacDir=1;}render();}
 
 // ── RENDER HISTORIA ──
 function renderHistoria(){
@@ -689,11 +694,9 @@ function renderHistoria(){
   const minOpts=S.ministranci.map(m=>`<option value="${m.id}">${m.imie} ${m.nazwisko}</option>`).join('');
   const hasFilters=S.logFilterMin||S.logFilterDateFrom||S.logFilterDateTo||S.logFilterTyp;
   const filters=`<div class="log-filters">
-    <select onchange="S.logFilterMin=this.value;render()" style="min-width:160px">
-      <option value="">Wszyscy ministranci</option>${minOpts}
-    </select>
-    <input type="date" value="${S.logFilterDateFrom}" onchange="S.logFilterDateFrom=this.value;render()" title="Od daty">
-    <input type="date" value="${S.logFilterDateTo}" onchange="S.logFilterDateTo=this.value;render()" title="Do daty">
+    <select onchange="S.logFilterMin=this.value;render()" style="min-width:160px"><option value="">Wszyscy ministranci</option>${minOpts}</select>
+    <input type="date" value="${S.logFilterDateFrom}" onchange="S.logFilterDateFrom=this.value;render()">
+    <input type="date" value="${S.logFilterDateTo}" onchange="S.logFilterDateTo=this.value;render()">
     <select onchange="S.logFilterTyp=this.value;render()">
       <option value="">Wszystkie typy</option>
       <option value="obl">Obecność obowiązkowa</option>
@@ -726,7 +729,7 @@ function renderHistoria(){
   return `<div class="panel-section">
     <h2><i class="ti ti-history"></i>Historia punktów</h2>
     ${filters}
-    ${daty.length?body:`<div class="empty-state" style="padding:2rem"><i class="ti ti-history" style="font-size:32px;display:block;margin-bottom:8px"></i>Brak wpisów spełniających kryteria.</div>`}
+    ${daty.length?body:`<div class="empty-state" style="padding:2rem"><i class="ti ti-history" style="font-size:32px;display:block;margin-bottom:8px"></i>Brak wpisów.</div>`}
   </div>`;
 }
 
@@ -736,8 +739,7 @@ function renderOpiekun(){
     const a=S.sortOpKey===key,arr=a?(S.sortOpDir===1?'↑':'↓'):'↕';
     return `<th class="${a?'sort-active':''}" onclick="sortOp('${key}')">${label}<span class="sort-arrow">${arr}</span></th>`;
   }
-  let mins=[...S.ministranci];
-  mins.sort((a,b)=>{
+  let mins=[...S.ministranci].sort((a,b)=>{
     const k=S.sortOpKey,d=S.sortOpDir;
     let va=k==='punkty'?(Number(S.punkty[a.id])||0):k==='kat'?a.kat:(a[k]||'');
     let vb=k==='punkty'?(Number(S.punkty[b.id])||0):k==='kat'?b.kat:(b[k]||'');
@@ -763,31 +765,49 @@ function renderOpiekun(){
   </tr>`).join('');
   const minOpts=S.ministranci.map(m=>`<option value="${m.id}">${m.imie} ${m.nazwisko}</option>`).join('');
   const mszaOpts=S.msze.map(m=>`<option value="${m.id}">${m.godzina} – ${m.nazwa}</option>`).join('');
+  // Grafik: msza + dzień tygodnia + ministrant
   const grafRows=S.grafik.map(g=>{
     const m=fMin(g.ministrantId),ms=fMsza(g.mszaId);
-    return `<tr><td>${ms?ms.godzina+' '+ms.nazwa:'?'}</td><td>${m?m.imie+' '+m.nazwisko:'?'}</td>
+    return `<tr>
+      <td>${ms?ms.godzina+' '+ms.nazwa:'?'}</td>
       <td>${DAYS[Number(g.dow)]||'?'}</td>
-      <td><button class="btn-danger" onclick="deleteGrafik(${g.mszaId},${g.ministrantId},${g.dow})">Usuń</button></td></tr>`;
+      <td>${m?m.imie+' '+m.nazwisko:'?'}</td>
+      <td><button class="btn-danger" onclick="deleteGrafik(${g.mszaId},${g.ministrantId},${g.dow})">Usuń</button></td>
+    </tr>`;
   }).join('');
   const swRows=S.swieta.map(s=>`<tr><td>${s}</td><td>${isSunday(s)?'Niedziela':'Święto'}</td>
     <td><button class="btn-danger" onclick="deleteSwiety('${s}')">Usuń</button></td></tr>`).join('');
   const nabRows=S.nabozenstwaDef.map(n=>`<tr><td>${n.data}</td><td>${n.nazwa}</td>
     <td><span class="pts-badge pb-gold">${pktStr(Number(n.pktDodatkowy)||1)}</span></td>
     <td><button class="btn-danger" onclick="deleteNab(${n.id})">Usuń</button></td></tr>`).join('');
+
+  // Tabela obsady: msza × dzień tygodnia → ministranci
+  const obsadaRows=[];
+  S.msze.forEach(msza=>{
+    const dniMszy=msza.dni&&msza.dni.map?msza.dni.map(Number):[];
+    dniMszy.forEach(dow=>{
+      const wpisy=grafikMszyDow(msza.id,dow);
+      const ministranci=wpisy.map(g=>fMin(g.ministrantId)).filter(Boolean);
+      const isEmpty=ministranci.length===0;
+      const pills=ministranci.map(m=>`<span style="font-size:11px;padding:2px 7px;border-radius:20px;background:var(--green-light);color:var(--green);margin:2px;display:inline-block">${m.imie} ${m.nazwisko[0]}.</span>`).join('');
+      obsadaRows.push(`<tr class="${isEmpty?'day-row-empty':''}">
+        <td style="font-weight:500">${msza.godzina} ${msza.nazwa}</td>
+        <td>${DAYS[dow]}</td>
+        <td style="${isEmpty?'color:var(--red);font-weight:600':'font-weight:600'}">${isEmpty?'⚠':ministranci.length}</td>
+        <td>${pills||'<span style="font-size:12px;color:var(--red)">brak!</span>'}</td>
+      </tr>`);
+    });
+  });
+
+  // Tabela: ministrant → ile mszy i których
   const minGrafRows=mins.map(m=>{
     const wpisy=S.grafik.filter(g=>g.ministrantId==m.id);
-    const pills=wpisy.map(g=>{const ms=fMsza(g.mszaId);return ms?`<span style="font-size:11px;padding:2px 7px;border-radius:20px;background:var(--bg2);border:1px solid var(--border);margin:2px;display:inline-block">${DAYSSHORT[Number(g.dow)]} ${ms.godzina}</span>`:''}).join('');
+    const pills=wpisy.map(g=>{
+      const ms=fMsza(g.mszaId);
+      return ms?`<span style="font-size:11px;padding:2px 7px;border-radius:20px;background:var(--bg2);border:1px solid var(--border);margin:2px;display:inline-block">${DAYSSHORT[Number(g.dow)]} ${ms.godzina}</span>`:'';
+    }).join('');
     return `<tr><td>${m.imie} ${m.nazwisko}</td><td><span class="${KAT_CSS[m.kat]||'kat-ministrant'}">${m.kat}</span></td>
       <td style="font-weight:600">${wpisy.length}</td><td>${pills||'<span style="color:var(--text3);font-size:12px">brak</span>'}</td></tr>`;
-  }).join('');
-  const dayObs=DAYS.map((day,i)=>{
-    const ids=[...new Set(S.grafik.filter(g=>Number(g.dow)===i).map(g=>g.ministrantId))];
-    const isEmpty=ids.length===0;
-    const pills=ids.map(id=>{const m=fMin(id);return m?`<span style="font-size:11px;padding:2px 7px;border-radius:20px;background:var(--green-light);color:var(--green);margin:2px;display:inline-block">${m.imie} ${m.nazwisko[0]}.</span>`:''}).join('');
-    return `<tr class="${isEmpty?'day-row-empty':''}">
-      <td class="day-cell" style="${i===0||i===6?'font-weight:600':''}">${day}${i===0||i===6?` <span class="holiday-badge">N</span>`:''}</td>
-      <td style="${isEmpty?'color:var(--red);font-weight:600':'font-weight:600'}">${isEmpty?'⚠':ids.length}</td>
-      <td>${pills||'<span style="font-size:12px;color:var(--red)">brak!</span>'}</td></tr>`;
   }).join('');
 
   return `
@@ -802,7 +822,7 @@ function renderOpiekun(){
     </div></div>
     <div class="tbl-wrap"><table>
       <thead><tr>${thO('imie','Imię')}${thO('nazwisko','Nazwisko')}${thO('kat','Kategoria')}${thO('punkty','Punkty')}<th class="no-sort"></th></tr></thead>
-      <tbody>${minRows||'<tr><td colspan="5" style="text-align:center;padding:1rem;color:var(--text3)">Brak ministrantów</td></tr>'}</tbody>
+      <tbody>${minRows||'<tr><td colspan="5" style="text-align:center;padding:1rem;color:var(--text3)">Brak</td></tr>'}</tbody>
     </table></div>
   </div>
 
@@ -822,22 +842,37 @@ function renderOpiekun(){
       </div>
     </div>
     <div class="tbl-wrap"><table>
-      <thead><tr><th class="no-sort">Godz.</th><th class="no-sort">Nazwa</th><th class="no-sort">Dni</th><th class="no-sort" title="Obecność obowiązkowa">Ob.✓</th><th class="no-sort" title="Nieobecność">Ob.✗</th><th class="no-sort" title="Dodatkowa">Dod.</th><th class="no-sort"></th></tr></thead>
-      <tbody>${mszaRows||'<tr><td colspan="7" style="text-align:center;padding:1rem;color:var(--text3)">Brak mszy</td></tr>'}</tbody>
+      <thead><tr><th class="no-sort">Godz.</th><th class="no-sort">Nazwa</th><th class="no-sort">Dni</th><th class="no-sort">Ob.✓</th><th class="no-sort">Ob.✗</th><th class="no-sort">Dod.</th><th class="no-sort"></th></tr></thead>
+      <tbody>${mszaRows||'<tr><td colspan="7" style="text-align:center;padding:1rem;color:var(--text3)">Brak</td></tr>'}</tbody>
     </table></div>
   </div>
 
   <div class="panel-section"><h2><i class="ti ti-calendar-week"></i>Grafik tygodniowy</h2>
-    <p style="font-size:12px;color:var(--text2);margin-bottom:8px"><i class="ti ti-info-circle" style="font-size:12px;vertical-align:-1px"></i> Wpisy powtarzają się automatycznie co tydzień.</p>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:8px"><i class="ti ti-info-circle" style="font-size:12px;vertical-align:-1px"></i> Przypisz ministranta do konkretnej mszy w konkretnym dniu tygodnia.</p>
     <div class="form-card"><div class="form-row">
       <div class="fg"><label>Msza</label><select onchange="S.newGrafikMszaId=parseInt(this.value)"><option value="">Wybierz…</option>${mszaOpts}</select></div>
-      <div class="fg"><label>Ministrant</label><select onchange="S.newGrafikMinId=parseInt(this.value)"><option value="">Wybierz…</option>${minOpts}</select></div>
       <div class="fg"><label>Dzień tygodnia</label><select onchange="S.newGrafikDow=parseInt(this.value)">${DAYS.map((d,i)=>`<option value="${i}" ${S.newGrafikDow===i?'selected':''}>${d}</option>`).join('')}</select></div>
+      <div class="fg"><label>Ministrant</label><select onchange="S.newGrafikMinId=parseInt(this.value)"><option value="">Wybierz…</option>${minOpts}</select></div>
       <button class="btn-primary" onclick="addGrafik()">Dodaj</button>
     </div></div>
     <div class="tbl-wrap"><table>
-      <thead><tr><th class="no-sort">Msza</th><th class="no-sort">Ministrant</th><th class="no-sort">Dzień</th><th class="no-sort"></th></tr></thead>
+      <thead><tr><th class="no-sort">Msza</th><th class="no-sort">Dzień</th><th class="no-sort">Ministrant</th><th class="no-sort"></th></tr></thead>
       <tbody>${grafRows||'<tr><td colspan="4" style="text-align:center;padding:1rem;color:var(--text3)">Brak wpisów</td></tr>'}</tbody>
+    </table></div>
+  </div>
+
+  <div class="panel-section"><h2><i class="ti ti-layout-grid"></i>Obsada — msza × dzień tygodnia</h2>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th class="no-sort">Msza</th><th class="no-sort">Dzień</th><th class="no-sort">#</th><th class="no-sort">Ministranci</th></tr></thead>
+      <tbody>${obsadaRows.join('')||'<tr><td colspan="4" style="text-align:center;padding:1rem;color:var(--text3)">Brak danych</td></tr>'}</tbody>
+    </table></div>
+    <p style="margin-top:6px;font-size:12px;color:var(--text2)"><span style="color:var(--red)">⚠</span> = brak ministrantów na tej mszy w tym dniu</p>
+  </div>
+
+  <div class="panel-section"><h2><i class="ti ti-chart-bar"></i>Ministrant → msze obowiązkowe</h2>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th class="no-sort">Ministrant</th><th class="no-sort">Kat.</th><th class="no-sort">Liczba</th><th class="no-sort">Terminy</th></tr></thead>
+      <tbody>${minGrafRows||'<tr><td colspan="4" style="text-align:center;padding:1rem;color:var(--text3)">Brak</td></tr>'}</tbody>
     </table></div>
   </div>
 
@@ -855,34 +890,18 @@ function renderOpiekun(){
   <div class="panel-section"><h2><i class="ti ti-candle"></i>Nabożeństwa</h2>
     <div class="form-card"><div class="form-row">
       <div class="fg"><label>Data</label><input type="date" value="${S.newNabData}" oninput="S.newNabData=this.value"></div>
-      <div class="fg" style="flex:1"><label>Nazwa</label><input placeholder="Majówka, Droga Krzyżowa…" value="${S.newNabNazwa}" oninput="S.newNabNazwa=this.value"></div>
+      <div class="fg" style="flex:1"><label>Nazwa</label><input placeholder="Majówka…" value="${S.newNabNazwa}" oninput="S.newNabNazwa=this.value"></div>
       <div class="pts-grp" style="align-self:flex-end"><label>Pkt dod.</label><input type="number" value="${S.newNabPktDodatkowy}" oninput="S.newNabPktDodatkowy=parseInt(this.value)||0"></div>
       <button class="btn-primary" onclick="addNab()">Dodaj</button>
     </div></div>
-    <div class="tbl-wrap"><table><thead><tr><th class="no-sort">Data</th><th class="no-sort">Nazwa</th><th class="no-sort">Pkt dod.</th><th class="no-sort"></th></tr></thead>
+    <div class="tbl-wrap"><table><thead><tr><th class="no-sort">Data</th><th class="no-sort">Nazwa</th><th class="no-sort">Pkt</th><th class="no-sort"></th></tr></thead>
       <tbody>${nabRows||'<tr><td colspan="4" style="text-align:center;padding:.75rem;color:var(--text3)">Brak</td></tr>'}</tbody>
     </table></div>
-  </div>
-
-  <div class="grid-2">
-    <div class="panel-section"><h2><i class="ti ti-chart-bar"></i>Ministrant → msze</h2>
-      <div class="tbl-wrap"><table>
-        <thead><tr><th class="no-sort">Ministrant</th><th class="no-sort">Kat.</th><th class="no-sort">#</th><th class="no-sort">Terminy</th></tr></thead>
-        <tbody>${minGrafRows}</tbody>
-      </table></div>
-    </div>
-    <div class="panel-section"><h2><i class="ti ti-calendar"></i>Dni tygodnia — obsada</h2>
-      <div class="tbl-wrap"><table>
-        <thead><tr><th class="no-sort">Dzień</th><th class="no-sort">#</th><th class="no-sort">Ministranci</th></tr></thead>
-        <tbody>${dayObs}</tbody>
-      </table></div>
-      <p style="margin-top:6px;font-size:12px;color:var(--text2)"><span style="color:var(--red)">⚠</span> = brak ministrantów w danym dniu</p>
-    </div>
   </div>`;
 }
+
 function sortOp(key){if(S.sortOpKey===key)S.sortOpDir*=-1;else{S.sortOpKey=key;S.sortOpDir=1;}render();}
 
-// ── RENDER ──
 function render(){
   const content=document.getElementById('main-content');
   if(!content)return;
@@ -892,7 +911,6 @@ function render(){
   else content.innerHTML=renderOpiekun();
 }
 
-// ── START ──
 init();
 </script>
 </body>
