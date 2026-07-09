@@ -1,4 +1,5 @@
-<!DOCTYPE html>
+
+   <!DOCTYPE html>
 <html lang="pl">
 <head>
 <meta charset="UTF-8">
@@ -13,7 +14,7 @@
    (instrukcja w pliku INSTRUKCJA.md)
 ═══════════════════════════════════════════ */
 :root{
-  --api: 'https://script.google.com/macros/s/AKfycbwMRbGnTzznAkEoITsQC3AnzKMGtQ2L21Cn5y8ADCvNzA34bNE0EWvINlMjny6Dx8zqyQ/exec';
+  --api: 'https://script.google.com/macros/s/AKfycbw2qQBHraP45IG8TGpokBMvM3tJK2TdRmYxFVLZBbxIkiQyVHRR7o1YDszwsVnU7aqVPg/exec';
 
   --green:#2D6A1F;--green-light:#EAF3DE;--green-mid:#639922;
   --red:#A32D2D;--red-light:#FCEBEB;
@@ -252,7 +253,7 @@ tr:hover td{background:var(--bg2)}
 </div>
 
 <script>
-const API_URL = 'https://script.google.com/macros/s/AKfycbwMRbGnTzznAkEoITsQC3AnzKMGtQ2L21Cn5y8ADCvNzA34bNE0EWvINlMjny6Dx8zqyQ/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbw2qQBHraP45IG8TGpokBMvM3tJK2TdRmYxFVLZBbxIkiQyVHRR7o1YDszwsVnU7aqVPg/exec';
 
 const DAYS=['niedziela','poniedziałek','wtorek','środa','czwartek','piątek','sobota'];
 const DAYSSHORT=['nd','pn','wt','śr','cz','pt','sb'];
@@ -287,14 +288,27 @@ let S={
 };
 
 function dk(d){return d instanceof Date?d.toISOString().slice(0,10):String(d)}
-function fdShort(d){const dd=typeof d==='string'?new Date(d+'T12:00'):d;return `${dd.getDate()}.${dd.getMonth()+1}.${dd.getFullYear()}`}
+function fdShort(d){
+  if(!d)return '?';
+  let dd;
+  if(d instanceof Date) dd=d;
+  else if(typeof d==='string'&&d.length>=10) dd=new Date(d.slice(0,10)+'T12:00');
+  else return '?';
+  if(isNaN(dd.getTime()))return '?';
+  return `${dd.getDate()}.${dd.getMonth()+1}.${dd.getFullYear()}`;
+}
 function fdLong(d){const dd=typeof d==='string'?new Date(d+'T12:00'):d;return `${DAYS[dd.getDay()]}, ${dd.getDate()} ${MONTHS[dd.getMonth()]} ${dd.getFullYear()}`}
 function fMin(id){return S.ministranci.find(m=>m.id==id)}
 function fMsza(id){return S.msze.find(m=>m.id==id)}
 function initials(m){return (m.imie[0]||'')+(m.nazwisko[0]||'')}
 function isSunday(d){return new Date(d+'T12:00').getDay()===0}
 function isHoliday(d){return S.swieta.includes(d)||isSunday(d)}
-function dowOf(d){return new Date(d+'T12:00').getDay()}
+function dowOf(d){
+  if(!d)return 0;
+  const ds=typeof d==='string'?d.slice(0,10):dk(d);
+  const dt=new Date(ds+'T12:00');
+  return isNaN(dt.getTime())?0:dt.getDay();
+}
 function todayStr(){return dk(new Date())}
 function addDays(ds,n){const d=new Date(ds+'T12:00');d.setDate(d.getDate()+n);return dk(d)}
 function pktStr(v){return v>0?`+${v}`:String(v)}
@@ -346,7 +360,7 @@ function getObecny(dateStr,mszaId,minId){
 }
 
 // ── ZAPIS MSZY (opiekun klika "Zapisz") ──
-// Nadpisuje stan checkboxów — nie nalicza punktów
+// Nadpisuje stan checkboxów I nalicza punkty — tworzy/aktualizuje raport
 async function zapiszMsze(dateStr,mszaId){
   const msza=fMsza(mszaId);if(!msza)return;
   const dow=dowOf(dateStr);
@@ -356,9 +370,61 @@ async function zapiszMsze(dateStr,mszaId){
     stan[g.ministrantId]=getObecny(dateStr,mszaId,g.ministrantId);
   });
   const key=mszaKey(dateStr,mszaId);
+
+  // Czy istnieje już raport? Jeśli tak — cofnij stare punkty przed naliczeniem nowych
+  const staryRaport=S.raporty[key];
+  if(staryRaport&&staryRaport.stan){
+    gDnia.forEach(g=>{
+      const bylWtedy=!!staryRaport.stan[g.ministrantId];
+      const stareDelta=bylWtedy?(Number(msza.pktObecny)||2):(Number(msza.pktNieobecny)||0);
+      if(!S.punkty[g.ministrantId])S.punkty[g.ministrantId]=0;
+      S.punkty[g.ministrantId]-=stareDelta; // cofnij stare punkty
+    });
+    // Cofnij punkty dodatkowych
+    const dods=S.dodatkowi[key]||[];
+    dods.filter(d=>d.saved).forEach(d=>{
+      const min=S.ministranci.find(m=>m.imie+' '+m.nazwisko===d.name);
+      if(min){
+        if(!S.punkty[min.id])S.punkty[min.id]=0;
+        S.punkty[min.id]-=(Number(msza.pktDodatkowy)||1);
+      }
+    });
+  }
+
+  // Nalicz nowe punkty na podstawie aktualnych checkboxów
+  gDnia.forEach(g=>{
+    const byl=!!stan[g.ministrantId];
+    const delta=byl?(Number(msza.pktObecny)||2):(Number(msza.pktNieobecny)||0);
+    if(!S.punkty[g.ministrantId])S.punkty[g.ministrantId]=0;
+    S.punkty[g.ministrantId]+=delta;
+  });
+
+  // Dodatkowi — nalicz punkty zaznaczonym
+  const dods=S.dodatkowi[key]||[];
+  dods.filter(d=>d.saved).forEach(d=>{
+    const min=S.ministranci.find(m=>m.imie+' '+m.nazwisko===d.name);
+    if(min){
+      if(!S.punkty[min.id])S.punkty[min.id]=0;
+      S.punkty[min.id]+=(Number(msza.pktDodatkowy)||1);
+    }
+  });
+
+  // Zapisz lokalnie
   S.obecnosci[key]=stan;
+  S.raporty[key]={data:dateStr,mszaId,mszaNazwa:msza.nazwa,stan,pktSnapshot:{...S.punkty}};
+
+  // Zapisz do bazy — stan checkboxów + raport z punktami
   await apiCall('zapiszMsze',{klucz:key,stan:JSON.stringify(stan)});
-  toast(`Zapisano mszę ${msza.godzina} ${msza.nazwa}`);
+  await apiCall('zapiszRaport',{
+    data:dateStr,
+    mszaId,
+    mszaNazwa:msza.nazwa,
+    stan:JSON.stringify(stan),
+    pktSnapshot:JSON.stringify(S.punkty),
+    punkty:JSON.stringify(S.punkty)
+  });
+
+  toast(`Zapisano: ${msza.godzina} ${msza.nazwa}`);
   render();
 }
 
@@ -436,7 +502,18 @@ async function init(){
   S.swieta=data.swieta||[];
   S.nabozenstwaDef=data.nabozenstwaDef||[];
   S.obecnosci=data.obecnosci||{};
-  S.raporty=data.raporty||{};
+  // Normalizuj klucze raportów - data może przyjść jako obiekt Date z Sheets
+  const rawRaporty=data.raporty||{};
+  S.raporty={};
+  Object.entries(rawRaporty).forEach(([k,r])=>{
+    // Upewnij się że data jest stringiem YYYY-MM-DD
+    if(r.data){
+      const dateStr=typeof r.data==='string'?r.data.slice(0,10):dk(new Date(r.data));
+      const mszaId=r.mszaId;
+      const newKey=`${dateStr}_${mszaId}`;
+      S.raporty[newKey]={...r,data:dateStr};
+    }
+  });
   // Konwertuj dodatkowi — stary format string → nowy {name,saved}
   const rawDod=data.dodatkowi||{};
   S.dodatkowi={};
@@ -737,7 +814,8 @@ function renderHistoria(){
     if(!byDate[r.data])byDate[r.data]=[];
     byDate[r.data].push({...r,key});
   });
-  const daty=Object.keys(byDate).sort((a,b)=>b.localeCompare(a));
+  // Filtruj klucze z poprawną datą
+const daty=Object.keys(byDate).filter(d=>d&&d.length>=10&&!d.startsWith('NaN')).sort((a,b)=>b.localeCompare(a));
 
   // Filtry
   const hasFilters=S.logFilterDateFrom||S.logFilterDateTo||S.logFilterMin;
