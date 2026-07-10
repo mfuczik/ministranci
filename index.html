@@ -1,5 +1,4 @@
-
-   <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pl">
 <head>
 <meta charset="UTF-8">
@@ -14,7 +13,7 @@
    (instrukcja w pliku INSTRUKCJA.md)
 ═══════════════════════════════════════════ */
 :root{
-  --api: 'https://script.google.com/macros/s/AKfycbw2qQBHraP45IG8TGpokBMvM3tJK2TdRmYxFVLZBbxIkiQyVHRR7o1YDszwsVnU7aqVPg/exec';
+  --api: 'https://script.google.com/macros/s/AKfycbzeZ0TPUI-_hOHOIy8XHV-vP32fbtIrUpldWPYnw3BoiGEWUxJ4a5U9cLA-z2KShDcfsg/exec';
 
   --green:#2D6A1F;--green-light:#EAF3DE;--green-mid:#639922;
   --red:#A32D2D;--red-light:#FCEBEB;
@@ -253,7 +252,7 @@ tr:hover td{background:var(--bg2)}
 </div>
 
 <script>
-const API_URL = 'https://script.google.com/macros/s/AKfycbw2qQBHraP45IG8TGpokBMvM3tJK2TdRmYxFVLZBbxIkiQyVHRR7o1YDszwsVnU7aqVPg/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbzeZ0TPUI-_hOHOIy8XHV-vP32fbtIrUpldWPYnw3BoiGEWUxJ4a5U9cLA-z2KShDcfsg/exec';
 
 const DAYS=['niedziela','poniedziałek','wtorek','środa','czwartek','piątek','sobota'];
 const DAYSSHORT=['nd','pn','wt','śr','cz','pt','sb'];
@@ -272,6 +271,10 @@ let S={
   dodatkowi:{},   // {dateStr_mszaId: [{name, saved}]}
   nabDodatkowi:{},
   punkty:{},
+  // wpisyPunktowe: {klucz(dateStr_mszaId_ministrantId): punkty}
+  // Ledger — jedna wartość na parę (dzień, msza, osoba). NADPISYWANA, nigdy nie
+  // dodawana/odejmowana ręcznie. Suma punktów danej osoby = suma wszystkich jej wpisów.
+  wpisyPunktowe:{},
   lastOpenedDate:null,
   catchupInfo:[],
   extraInputs:{},nabInputs:{},collapsed:{},
@@ -313,6 +316,7 @@ function todayStr(){return dk(new Date())}
 function addDays(ds,n){const d=new Date(ds+'T12:00');d.setDate(d.getDate()+n);return dk(d)}
 function pktStr(v){return v>0?`+${v}`:String(v)}
 function mszaKey(dateStr,mszaId){return `${dateStr}_${mszaId}`}
+function wpisKlucz(dateStr,mszaId,minId){return `${dateStr}_${mszaId}_${minId}`}
 function hasRaport(dateStr,mszaId){return !!S.raporty[mszaKey(dateStr,mszaId)]}
 
 function toast(msg,type='ok',ms=3000){
@@ -332,13 +336,26 @@ async function apiCall(action,data={}){
     const params=new URLSearchParams({action,...data});
     const res=await fetch(API_URL+'?'+params);
     const json=await res.json();
-    setSyncStatus('ok');
+    setSyncStatus(json&&json.ok?'ok':'err');
     return json;
   }catch(e){
     setSyncStatus('err');
     console.error('API error',e);
     return {ok:false,error:String(e)};
   }
+}
+
+// ── KSIĘGA PUNKTÓW (ledger) ──
+// Jeden wiersz na parę (dzień, msza, osoba) — zawsze NADPISYWANY, nigdy dodawany/odejmowany.
+// Suma punktów osoby = suma wszystkich jej wpisów. Dzięki temu nie trzeba "cofać" niczego:
+// zmiana obecności to po prostu nadpisanie jednej wartości na nową.
+async function zapiszWpis(dateStr,mszaId,minId,punkty){
+  const klucz=wpisKlucz(dateStr,mszaId,minId);
+  const stara=S.wpisyPunktowe[klucz]||0;
+  S.punkty[minId]=(Number(S.punkty[minId])||0)-stara+punkty;
+  S.wpisyPunktowe[klucz]=punkty;
+  const res=await apiCall('zapiszWpisPunktowy',{klucz,data:dateStr,mszaId,ministrantId:minId,punkty});
+  return !!(res&&res.ok);
 }
 
 function mszeDnia(dateStr){
@@ -360,7 +377,7 @@ function getObecny(dateStr,mszaId,minId){
 }
 
 // ── ZAPIS MSZY (opiekun klika "Zapisz") ──
-// Nadpisuje stan checkboxów I nalicza punkty — tworzy/aktualizuje raport
+// Nadpisuje stan checkboxów oraz punkty każdej osoby w księdze punktów (bez cofania!)
 async function zapiszMsze(dateStr,mszaId){
   const msza=fMsza(mszaId);if(!msza)return;
   const dow=dowOf(dateStr);
@@ -370,65 +387,40 @@ async function zapiszMsze(dateStr,mszaId){
     stan[g.ministrantId]=getObecny(dateStr,mszaId,g.ministrantId);
   });
   const key=mszaKey(dateStr,mszaId);
+  let ok=true;
 
-  // Czy istnieje już raport? Jeśli tak — cofnij stare punkty przed naliczeniem nowych
-  const staryRaport=S.raporty[key];
-  if(staryRaport&&staryRaport.stan){
-    gDnia.forEach(g=>{
-      const bylWtedy=!!staryRaport.stan[g.ministrantId];
-      const stareDelta=bylWtedy?(Number(msza.pktObecny)||2):(Number(msza.pktNieobecny)||0);
-      if(!S.punkty[g.ministrantId])S.punkty[g.ministrantId]=0;
-      S.punkty[g.ministrantId]-=stareDelta; // cofnij stare punkty
-    });
-    // Cofnij punkty dodatkowych
-    const dods=S.dodatkowi[key]||[];
-    dods.filter(d=>d.saved).forEach(d=>{
-      const min=S.ministranci.find(m=>m.imie+' '+m.nazwisko===d.name);
-      if(min){
-        if(!S.punkty[min.id])S.punkty[min.id]=0;
-        S.punkty[min.id]-=(Number(msza.pktDodatkowy)||1);
-      }
-    });
-  }
-
-  // Nalicz nowe punkty na podstawie aktualnych checkboxów
-  gDnia.forEach(g=>{
+  // Obowiązkowi — nadpisz wpis punktowy każdej osoby
+  const obowRes=await Promise.all(gDnia.map(g=>{
     const byl=!!stan[g.ministrantId];
     const delta=byl?(Number(msza.pktObecny)||2):(Number(msza.pktNieobecny)||0);
-    if(!S.punkty[g.ministrantId])S.punkty[g.ministrantId]=0;
-    S.punkty[g.ministrantId]+=delta;
-  });
+    return zapiszWpis(dateStr,mszaId,g.ministrantId,delta);
+  }));
+  if(obowRes.some(r=>!r))ok=false;
 
-  // Dodatkowi — nalicz punkty zaznaczonym
+  // Dodatkowi — zaznaczeni dostają pktDodatkowy, odznaczeni/usunięci wracają do 0
   const dods=S.dodatkowi[key]||[];
-  dods.filter(d=>d.saved).forEach(d=>{
+  const dodRes=await Promise.all(dods.map(d=>{
     const min=S.ministranci.find(m=>m.imie+' '+m.nazwisko===d.name);
-    if(min){
-      if(!S.punkty[min.id])S.punkty[min.id]=0;
-      S.punkty[min.id]+=(Number(msza.pktDodatkowy)||1);
-    }
-  });
+    if(!min)return true;
+    const delta=d.saved?(Number(msza.pktDodatkowy)||1):0;
+    return zapiszWpis(dateStr,mszaId,min.id,delta);
+  }));
+  if(dodRes.some(r=>!r))ok=false;
 
-  // Zapisz lokalnie
+  // Zapisz lokalnie stan checkboxów + raport (do zakładki Historia)
   S.obecnosci[key]=stan;
-  S.raporty[key]={data:dateStr,mszaId,mszaNazwa:msza.nazwa,stan,pktSnapshot:{...S.punkty}};
+  S.raporty[key]={data:dateStr,mszaId,mszaNazwa:msza.nazwa,stan};
 
-  // Zapisz do bazy — stan checkboxów + raport z punktami
-  await apiCall('zapiszMsze',{klucz:key,stan:JSON.stringify(stan)});
-  await apiCall('zapiszRaport',{
-    data:dateStr,
-    mszaId,
-    mszaNazwa:msza.nazwa,
-    stan:JSON.stringify(stan),
-    pktSnapshot:JSON.stringify(S.punkty),
-    punkty:JSON.stringify(S.punkty)
-  });
+  const r1=await apiCall('zapiszMsze',{klucz:key,stan:JSON.stringify(stan)});
+  const r2=await apiCall('zapiszRaport',{data:dateStr,mszaId,mszaNazwa:msza.nazwa,stan:JSON.stringify(stan)});
+  if(!r1.ok||!r2.ok)ok=false;
 
-  toast(`Zapisano: ${msza.godzina} ${msza.nazwa}`);
+  if(ok)toast(`Zapisano: ${msza.godzina} ${msza.nazwa}`);
+  else toast('Błąd zapisu do Arkusza! Sprawdź połączenie i URL Apps Script.','err',6000);
   render();
 }
 
-// ── CATCHUP: generuj raporty za poprzednie dni ──
+// ── CATCHUP: generuj wpisy za poprzednie dni ──
 // Dla każdego dnia bez raportu (max 7 dni wstecz):
 // nalicza punkty obowiązkowym (obecni +pkt, nieobecni -pkt, na podstawie zapisanego stanu)
 async function catchUp(){
@@ -453,35 +445,48 @@ async function catchUp(){
       gDnia.forEach(g=>{
         stan[g.ministrantId]=!!stanZapisany[g.ministrantId];
       });
-      // Nalicz punkty
-      gDnia.forEach(g=>{
+      // Nalicz punkty (nadpisz wpisy w księdze)
+      await Promise.all(gDnia.map(g=>{
         const byl=!!stan[g.ministrantId];
         const delta=byl?(Number(msza.pktObecny)||2):(Number(msza.pktNieobecny)||0);
-        if(!S.punkty[g.ministrantId])S.punkty[g.ministrantId]=0;
-        S.punkty[g.ministrantId]+=delta;
-      });
+        return zapiszWpis(dateStr,msza.id,g.ministrantId,delta);
+      }));
       // Dodatkowi — nalicz punkty zarejestrowanym ministrantom
       const dods=S.dodatkowi[mszaKey(dateStr,msza.id)]||[];
-      dods.filter(d=>d.saved).forEach(d=>{
+      await Promise.all(dods.filter(d=>d.saved).map(d=>{
         const min=S.ministranci.find(m=>m.imie+' '+m.nazwisko===d.name);
-        if(min){
-          if(!S.punkty[min.id])S.punkty[min.id]=0;
-          S.punkty[min.id]+=(Number(msza.pktDodatkowy)||1);
-        }
-      });
-      // Zapisz raport
-      const raport={mszaNazwa:msza.nazwa,stan,pktSnapshot:{...S.punkty}};
-      S.raporty[mszaKey(dateStr,msza.id)]=raport;
+        if(!min)return Promise.resolve(true);
+        return zapiszWpis(dateStr,msza.id,min.id,Number(msza.pktDodatkowy)||1);
+      }));
+      // Zapisz raport (stan obecności, do zakładki Historia)
+      S.raporty[mszaKey(dateStr,msza.id)]={data:dateStr,mszaId:msza.id,mszaNazwa:msza.nazwa,stan};
       await apiCall('zapiszRaport',{
         data:dateStr,
         mszaId:msza.id,
         mszaNazwa:msza.nazwa,
-        stan:JSON.stringify(stan),
-        pktSnapshot:JSON.stringify(S.punkty),
-        punkty:JSON.stringify(S.punkty)
+        stan:JSON.stringify(stan)
       });
       S.catchupInfo.push({dateStr,msza:msza.nazwa});
     }
+  }
+}
+
+// ── ZASIEW DOMYŚLNYCH WPISÓW NA DZIŚ ──
+// Raz dziennie (przy pierwszym otwarciu aplikacji danego dnia) tworzy domyślny wpis
+// "nieobecny" dla każdej obowiązkowej osoby na dzisiejszych mszach. Jeśli opiekun
+// zapomni zapisać obecność, licznik i tak naliczy nieobecność. Zaznaczenie obecności
+// i kliknięcie "Zapisz" po prostu NADPISZE tę wartość — bez cofania czegokolwiek.
+async function seedToday(){
+  const dateStr=todayStr();
+  const dow=dowOf(dateStr);
+  const mszeD=mszeDnia(dateStr);
+  for(const msza of mszeD){
+    const gDnia=grafikMszyDow(msza.id,dow);
+    await Promise.all(gDnia.map(g=>{
+      const klucz=wpisKlucz(dateStr,msza.id,g.ministrantId);
+      if(Object.prototype.hasOwnProperty.call(S.wpisyPunktowe,klucz))return Promise.resolve(true); // już zasiane
+      return zapiszWpis(dateStr,msza.id,g.ministrantId,Number(msza.pktNieobecny)||0);
+    }));
   }
 }
 
@@ -521,12 +526,20 @@ async function init(){
     S.dodatkowi[k]=(v||[]).map(item=>typeof item==='string'?{name:item,saved:false}:item);
   });
   S.nabDodatkowi=data.nabDodatkowi||{};
-  S.punkty=data.punkty||{};
+  // Księga punktów (ledger) — źródło prawdy dla sumy punktów
+  const wpisyRaw=data.wpisyPunktowe||[];
+  S.wpisyPunktowe={};
+  wpisyRaw.forEach(w=>{ if(w.klucz)S.wpisyPunktowe[w.klucz]=Number(w.punkty)||0; });
+  S.punkty=data.punkty||{}; // suma policzona przez backend na podstawie księgi
   S.lastOpenedDate=data.lastOpenedDate||null;
   S.date=new Date();
+  const nowyDzien=S.lastOpenedDate!==todayStr();
 
-  // Generuj raporty za zaległe dni
+  // Generuj wpisy za zaległe dni
   await catchUp();
+  // Zasiej domyślne wpisy "nieobecny" na dziś — tylko przy pierwszym otwarciu tego dnia,
+  // żeby nie nadpisywać ręcznie zapisanych już dziś obecności
+  if(nowyDzien) await seedToday();
 
   await apiCall('saveLastOpened',{date:todayStr()});
   document.getElementById('loading-screen').classList.add('hidden');
@@ -593,9 +606,21 @@ function addNabDod(nabId){
   if(!S.nabDodatkowi[nabId])S.nabDodatkowi[nabId]=[];
   if(S.nabDodatkowi[nabId].includes(val))return;
   S.nabDodatkowi[nabId].push(val);S.nabInputs[nabId]='';
-  apiCall('saveNabDodatkowi',{nabId,list:JSON.stringify(S.nabDodatkowi[nabId])});render();
+  apiCall('saveNabDodatkowi',{nabId,list:JSON.stringify(S.nabDodatkowi[nabId])});
+  const nab=S.nabozenstwaDef.find(n=>n.id==nabId);
+  const min=S.ministranci.find(m=>(m.imie+' '+m.nazwisko).toLowerCase()===val.toLowerCase());
+  if(nab&&min)zapiszWpis(nab.data,'nab'+nabId,min.id,Number(nab.pktDodatkowy)||1);
+  render();
 }
-function removeNabDod(nabId,i){S.nabDodatkowi[nabId].splice(i,1);apiCall('saveNabDodatkowi',{nabId,list:JSON.stringify(S.nabDodatkowi[nabId])});render();}
+function removeNabDod(nabId,i){
+  const val=(S.nabDodatkowi[nabId]||[])[i];
+  S.nabDodatkowi[nabId].splice(i,1);
+  apiCall('saveNabDodatkowi',{nabId,list:JSON.stringify(S.nabDodatkowi[nabId])});
+  const nab=S.nabozenstwaDef.find(n=>n.id==nabId);
+  const min=S.ministranci.find(m=>(m.imie+' '+m.nazwisko).toLowerCase()===String(val||'').toLowerCase());
+  if(nab&&min)zapiszWpis(nab.data,'nab'+nabId,min.id,0);
+  render();
+}
 function toggleSec(key){S.collapsed[key]=!S.collapsed[key];render();}
 function toggleDay(i){const idx=S.newMszaDni.indexOf(i);if(idx===-1)S.newMszaDni.push(i);else S.newMszaDni.splice(idx,1);render();}
 
@@ -655,7 +680,6 @@ function renderDzis(){
           <div style="font-size:14px;font-weight:500">${m.imie} ${m.nazwisko}</div>
           <span class="${KAT_CSS[m.kat]||'kat-ministrant'}">${m.kat}</span>
         </div>
-        <span style="font-size:12px;color:var(--text2);margin-right:6px">${S.punkty[m.id]||0} pkt</span>
         <span class="pts-badge ${delta<0?'pb-red':delta>0?'pb-green':''}" style="margin-right:8px">${pktStr(delta)}</span>
         <button class="check-btn${ch?' done':''}" onclick="toggleOb(${msza.id},${m.id},'${dateStr}')" title="${ch?'Odznacz':'Zaznacz obecność'}">
           <i class="ti ${ch?'ti-check':'ti-circle'}"></i>
@@ -758,17 +782,6 @@ function renderDzis(){
 function renderPunkty(){
   const miesiac=S.punktyMiesiac,rok=S.punktyRok;
   const miesiacStr=`${rok}-${String(miesiac+1).padStart(2,'0')}`;
-  // Punkty miesięczne z raportów
-  const punktyM={};
-  Object.entries(S.raporty).forEach(([key,r])=>{
-    if(!r.data||!r.data.startsWith(miesiacStr))return;
-    if(!r.stan||!r.pktSnapshot)return;
-    // Różnica między pktSnapshot a poprzednim stanem
-    // Uproszczone: liczymy punkty z tego miesiąca z raportów
-  });
-  // Alternatywnie — policz ze snapshota pierwszego i ostatniego raportu w miesiącu
-  // Prostsza metoda: policz delty z raportów
-  const raportyM=Object.values(S.raporty).filter(r=>r.data&&r.data.startsWith(miesiacStr));
 
   const MIESIACE=['Styczeń','Luty','Marzec','Kwiecień','Maj','Czerwiec','Lipiec','Sierpień','Wrzesień','Październik','Listopad','Grudzień'];
   function sortMins(key,dir){
