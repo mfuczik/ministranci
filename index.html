@@ -15,6 +15,9 @@
 :root{
   --api: 'https://script.google.com/macros/s/AKfycbzeZ0TPUI-_hOHOIy8XHV-vP32fbtIrUpldWPYnw3BoiGEWUxJ4a5U9cLA-z2KShDcfsg/exec';
 
+
+
+
   --green:#2D6A1F;--green-light:#EAF3DE;--green-mid:#639922;
   --red:#A32D2D;--red-light:#FCEBEB;
   --blue:#0C447C;--blue-light:#E6F1FB;
@@ -397,13 +400,12 @@ async function zapiszMsze(dateStr,mszaId){
   }));
   if(obowRes.some(r=>!r))ok=false;
 
-  // Dodatkowi — zaznaczeni dostają pktDodatkowy, odznaczeni/usunięci wracają do 0
+  // Dodatkowi — każdy wpisany na listę liczy się jako obecny (bez zaznaczania)
   const dods=S.dodatkowi[key]||[];
   const dodRes=await Promise.all(dods.map(d=>{
     const min=S.ministranci.find(m=>m.imie+' '+m.nazwisko===d.name);
     if(!min)return true;
-    const delta=d.saved?(Number(msza.pktDodatkowy)||1):0;
-    return zapiszWpis(dateStr,mszaId,min.id,delta);
+    return zapiszWpis(dateStr,mszaId,min.id,Number(msza.pktDodatkowy)||1);
   }));
   if(dodRes.some(r=>!r))ok=false;
 
@@ -451,9 +453,9 @@ async function catchUp(){
         const delta=byl?(Number(msza.pktObecny)||2):(Number(msza.pktNieobecny)||0);
         return zapiszWpis(dateStr,msza.id,g.ministrantId,delta);
       }));
-      // Dodatkowi — nalicz punkty zarejestrowanym ministrantom
+      // Dodatkowi — wszyscy wpisani na listę liczą się jako obecni
       const dods=S.dodatkowi[mszaKey(dateStr,msza.id)]||[];
-      await Promise.all(dods.filter(d=>d.saved).map(d=>{
+      await Promise.all(dods.map(d=>{
         const min=S.ministranci.find(m=>m.imie+' '+m.nazwisko===d.name);
         if(!min)return Promise.resolve(true);
         return zapiszWpis(dateStr,msza.id,min.id,Number(msza.pktDodatkowy)||1);
@@ -583,18 +585,10 @@ function addDod(mszaId,dateStr){
   if(min&&oblIds.includes(String(min.id)))return;
   if(S.dodatkowi[key].find(d=>d.name.toLowerCase()===val.toLowerCase()))return;
   const label=min?(min.imie+' '+min.nazwisko):val;
-  S.dodatkowi[key].push({name:label,saved:false});
+  S.dodatkowi[key].push({name:label,saved:true});
   S.extraInputs[ik]='';
   apiCall('saveDodatkowi',{key,list:JSON.stringify(S.dodatkowi[key])});
   render();
-}
-function toggleDod(mszaId,dateStr,idx){
-  const key=mszaKey(dateStr,mszaId);
-  if(S.dodatkowi[key]&&S.dodatkowi[key][idx]){
-    S.dodatkowi[key][idx].saved=!S.dodatkowi[key][idx].saved;
-    apiCall('saveDodatkowi',{key,list:JSON.stringify(S.dodatkowi[key])});
-    render();
-  }
 }
 function removeDod(mszaId,dateStr,i){
   const key=mszaKey(dateStr,mszaId);
@@ -622,6 +616,13 @@ function removeNabDod(nabId,i){
   render();
 }
 function toggleSec(key){S.collapsed[key]=!S.collapsed[key];render();}
+function pickGrafikMsza(v){
+  S.newGrafikMszaId=v?parseInt(v):'';
+  const msza=fMsza(S.newGrafikMszaId);
+  const dni=(msza&&msza.dni)||[];
+  S.newGrafikDow=dni.length?dni[0]:'';
+  render();
+}
 function toggleDay(i){const idx=S.newMszaDni.indexOf(i);if(idx===-1)S.newMszaDni.push(i);else S.newMszaDni.splice(idx,1);render();}
 
 async function addMin(){
@@ -639,7 +640,7 @@ async function addMsza(){
 async function deleteMsza(id){const res=await apiCall('deleteMsza',{id});if(res.ok){S.msze=S.msze.filter(m=>m.id!=id);toast('Usunięto');render();}}
 async function addGrafik(){
   const mszaId=S.newGrafikMszaId,ministrantId=S.newGrafikMinId,dow=S.newGrafikDow;
-  if(!mszaId||!ministrantId)return;
+  if(!mszaId||!ministrantId||dow==='')return;
   if(S.grafik.find(g=>g.mszaId==mszaId&&g.ministrantId==ministrantId&&Number(g.dow)===dow))return;
   const res=await apiCall('addGrafik',{mszaId,ministrantId,dow});
   if(res.ok){S.grafik.push(res.wpis);toast('Dodano do grafiku');render();}
@@ -687,12 +688,10 @@ function renderDzis(){
       </div>`;
     }).join('');
 
-    // Lista dodatkowa — checkbox + imię
+    // Lista dodatkowa — wpisanie na listę = potwierdzona obecność, bez checkboxa
     const dodItems=dods.map((item,i)=>`
       <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
-        <button class="check-btn${item.saved?' done':''}" onclick="toggleDod(${msza.id},'${dateStr}',${i})" style="flex-shrink:0">
-          <i class="ti ${item.saved?'ti-check':'ti-circle'}"></i>
-        </button>
+        <i class="ti ti-check" style="color:var(--green);flex-shrink:0"></i>
         <span style="font-size:13px;flex:1">${item.name}</span>
         <button onclick="removeDod(${msza.id},'${dateStr}',${i})" style="height:26px;width:26px;background:var(--red-light);color:var(--red);border:none;border-radius:var(--r-sm);cursor:pointer;font-size:14px">×</button>
       </div>`).join('');
@@ -935,7 +934,12 @@ function renderOpiekun(){
     <td><button class="btn-danger" onclick="deleteMsza(${m.id})">Usuń</button></td>
   </tr>`).join('');
   const minOpts=S.ministranci.map(m=>`<option value="${m.id}">${m.imie} ${m.nazwisko}</option>`).join('');
-  const mszaOpts=S.msze.map(m=>`<option value="${m.id}">${m.godzina} – ${m.nazwa}</option>`).join('');
+  const mszaOpts=S.msze.map(m=>`<option value="${m.id}" ${S.newGrafikMszaId===m.id?'selected':''}>${m.godzina} – ${m.nazwa}</option>`).join('');
+  const grafikMszaSel=fMsza(S.newGrafikMszaId);
+  const grafikDniDozwolone=(grafikMszaSel&&grafikMszaSel.dni)||[];
+  const grafikDowOpts=grafikDniDozwolone.length
+    ? grafikDniDozwolone.map(i=>`<option value="${i}" ${S.newGrafikDow===i?'selected':''}>${DAYS[i]}</option>`).join('')
+    : `<option value="">Najpierw wybierz mszę</option>`;
   const grafRows=S.grafik.map(g=>{
     const m=fMin(g.ministrantId),ms=fMsza(g.mszaId);
     return `<tr><td>${ms?ms.godzina+' '+ms.nazwa:'?'}</td><td>${DAYS[Number(g.dow)]||'?'}</td>
@@ -1006,8 +1010,8 @@ function renderOpiekun(){
   <div class="panel-section"><h2><i class="ti ti-calendar-week"></i>Grafik tygodniowy</h2>
     <p style="font-size:12px;color:var(--text2);margin-bottom:8px">Przypisz ministranta do mszy w konkretnym dniu tygodnia.</p>
     <div class="form-card"><div class="form-row">
-      <div class="fg"><label>Msza</label><select onchange="S.newGrafikMszaId=parseInt(this.value)"><option value="">Wybierz…</option>${mszaOpts}</select></div>
-      <div class="fg"><label>Dzień tygodnia</label><select onchange="S.newGrafikDow=parseInt(this.value)">${DAYS.map((d,i)=>`<option value="${i}" ${S.newGrafikDow===i?'selected':''}>${d}</option>`).join('')}</select></div>
+      <div class="fg"><label>Msza</label><select onchange="pickGrafikMsza(this.value)"><option value="">Wybierz…</option>${mszaOpts}</select></div>
+      <div class="fg"><label>Dzień tygodnia</label><select ${!grafikMszaSel?'disabled':''} onchange="S.newGrafikDow=parseInt(this.value)">${grafikDowOpts}</select></div>
       <div class="fg"><label>Ministrant</label><select onchange="S.newGrafikMinId=parseInt(this.value)"><option value="">Wybierz…</option>${minOpts}</select></div>
       <button class="btn-primary" onclick="addGrafik()">Dodaj</button>
     </div></div>
